@@ -14,16 +14,11 @@ services:
     networks:
       - airvlc_net
 
-  mongodb:
-    image: mongo:6
-    container_name: airvlc-mongodb
-    environment:
-      MONGO_INITDB_ROOT_USERNAME: root
-      MONGO_INITDB_ROOT_PASSWORD: rootpassword
+  redisinsight:
+    image: redis/redisinsight:latest
+    container_name: airvlc-redisinsight
     ports:
-      - "27017:27017"
-    volumes:
-      - ./docker/mongodb/data:/data/db
+      - "5540:5540"
     restart: unless-stopped
     networks:
       - airvlc_net
