@@ -1,0 +1,35 @@
+# Data Analysis & Preprocessing
+pandas>=2.0.0
+numpy>=1.24.0
+scikit-learn>=1.2.0
+
+# Jupyter / EDA
+jupyterlab>=4.0.0
+matplotlib>=3.7.0
+seaborn>=0.12.0
+plotly>=5.14.0
+
+# Deep Learning (TensorFlow/Keras para LSTM y CNN)
+tensorflow>=2.14.0
+
+# NLP y Transformers (HuggingFace)
+transformers>=4.34.0
+torch>=2.1.0  # Opcional, pero Transformers a menudo lo usa bajo el capó para features avanzadas, aunque usemos TF para los modelos custom.
+
+# Web Scraping & APIs
+requests>=2.31.0
+beautifulsoup4>=4.12.0
+
+# Base de datos
+psycopg2-binary>=2.9.9
+pymongo>=4.6.0
+redis>=5.0.0
+elasticsearch>=8.10.0
+
+# Backend y Despliegue
+flask>=3.0.0
+gunicorn>=21.2.0
+python-dotenv>=1.0.0
+
+# AWS (Boto3 para Polly/Transcribe)
+boto3>=1.28.0

@@ -1,0 +1,85 @@
+services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: airvlc-postgres
+    environment:
+      POSTGRES_USER: airvlc_user
+      POSTGRES_PASSWORD: airvlc_password
+      POSTGRES_DB: airvlc_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - ./docker/postgres/data:/var/lib/postgresql/data
+    restart: unless-stopped
+    networks:
+      - airvlc_net
+
+  mongodb:
+    image: mongo:6
+    container_name: airvlc-mongodb
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: root
+      MONGO_INITDB_ROOT_PASSWORD: rootpassword
+    ports:
+      - "27017:27017"
+    volumes:
+      - ./docker/mongodb/data:/data/db
+    restart: unless-stopped
+    networks:
+      - airvlc_net
+
+  redis:
+    image: redis:7-alpine
+    container_name: airvlc-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - ./docker/redis/data:/data
+    restart: unless-stopped
+    networks:
+      - airvlc_net
+
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.10.4
+    container_name: airvlc-elasticsearch
+    environment:
+      - discovery.type=single-node
+      - xpack.security.enabled=false # Para facilitar el desarrollo local inicial
+      - "ES_JAVA_OPTS=-Xms512m -Xmx512m" # Límite de memoria para que el aula (16GB) no sufra
+    ports:
+      - "9200:9200"
+    volumes:
+      - ./docker/elasticsearch/data:/usr/share/elasticsearch/data
+    restart: unless-stopped
+    networks:
+      - airvlc_net
+
+  kibana:
+    image: docker.elastic.co/kibana/kibana:8.10.4
+    container_name: airvlc-kibana
+    environment:
+      - ELASTICSEARCH_HOSTS=http://elasticsearch:9200
+    ports:
+      - "5601:5601"
+    depends_on:
+      - elasticsearch
+    restart: unless-stopped
+    networks:
+      - airvlc_net
+
+  nodered:
+    image: nodered/node-red:latest
+    container_name: airvlc-nodered
+    environment:
+      - TZ=Europe/Madrid
+    ports:
+      - "1880:1880"
+    volumes:
+      - ./docker/nodered/data:/data
+    restart: unless-stopped
+    networks:
+      - airvlc_net
+
+networks:
+  airvlc_net:
+    driver: bridge
