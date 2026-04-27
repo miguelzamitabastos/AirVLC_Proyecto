@@ -41,6 +41,7 @@ services:
       - discovery.type=single-node
       - xpack.security.enabled=false # Para facilitar el desarrollo local inicial
       - "ES_JAVA_OPTS=-Xms512m -Xmx512m" # Límite de memoria para que el aula (16GB) no sufra
+      - cluster.routing.allocation.disk.threshold_enabled=false # Esto es por problemas de espacio del disco que tengo en clase, si no no haría falta
     ports:
       - "9200:9200"
     volumes:

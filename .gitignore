@@ -49,6 +49,8 @@ docker/data/
 docker/elasticsearch/data/
 docker/mongodb/data/
 docker/postgres/data/
+docker/nodered/data/
+docker/redis/data/
 
 # OS generated files
 .DS_Store

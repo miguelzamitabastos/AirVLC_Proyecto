@@ -1,6 +1,7 @@
 import os
 import psycopg2
-from pymongo import MongoClient
+from pymongo.mongo_client import MongoClient
+from pymongo.server_api import ServerApi
 import redis
 from dotenv import load_dotenv
 
@@ -50,7 +51,7 @@ def test_mongodb():
             print("⚠️ Faltan las credenciales de MongoDB Atlas en el archivo .env")
             return
             
-        client = MongoClient(mongo_uri)
+        client = MongoClient(mongo_uri, server_api=ServerApi('1'))
         db = client["airvlc_db"]
         collection = db["test_collection"]
         
