@@ -63,6 +63,26 @@ services:
     networks:
       - airvlc_net
 
+  logstash:
+    image: docker.elastic.co/logstash/logstash:8.10.4
+    container_name: airvlc-logstash
+    environment:
+      - "LS_JAVA_OPTS=-Xms256m -Xmx256m"
+    volumes:
+      - ./docker/logstash/config/logstash.yml:/usr/share/logstash/config/logstash.yml:ro
+      - ./docker/logstash/config/pipelines.yml:/usr/share/logstash/config/pipelines.yml:ro
+      - ./docker/logstash/config/es-template.json:/usr/share/logstash/config/es-template.json:ro
+      - ./docker/logstash/pipeline:/usr/share/logstash/pipeline:ro
+      - ./data/raw:/usr/share/logstash/csv-data:ro
+    ports:
+      - "5044:5044"
+      - "9600:9600"
+    depends_on:
+      - elasticsearch
+    restart: unless-stopped
+    networks:
+      - airvlc_net
+
   nodered:
     image: nodered/node-red:latest
     container_name: airvlc-nodered

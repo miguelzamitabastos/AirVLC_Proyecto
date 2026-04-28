@@ -24,7 +24,7 @@ beautifulsoup4>=4.12.0
 psycopg2-binary>=2.9.9
 pymongo>=4.6.0
 redis>=5.0.0
-elasticsearch>=8.10.0
+elasticsearch>=8.10.0,<9.0.0
 
 # Backend y Despliegue
 flask>=3.0.0

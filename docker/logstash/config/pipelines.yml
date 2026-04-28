@@ -1,0 +1,5 @@
+# Logstash Pipelines — AirVLC
+# Define los pipelines a ejecutar
+
+- pipeline.id: main
+  path.config: "/usr/share/logstash/pipeline/logstash.conf"
