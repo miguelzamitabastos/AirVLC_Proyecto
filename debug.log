@@ -1,0 +1,60 @@
+Conectando a PostgreSQL para extraer TODAS las estaciones...
+Conectando a MongoDB para extraer datos climáticos...
+Traceback (most recent call last):
+  File "/Users/miguel/Desktop/Curso IA/Propuesta Proyecto/AirVLCProyecto/src/ml/prepare_colab_dataset.py", line 143, in <module>
+    main()
+  File "/Users/miguel/Desktop/Curso IA/Propuesta Proyecto/AirVLCProyecto/src/ml/prepare_colab_dataset.py", line 75, in main
+    df_mongo = get_mongodb_data()
+               ^^^^^^^^^^^^^^^^^^
+  File "/Users/miguel/Desktop/Curso IA/Propuesta Proyecto/AirVLCProyecto/src/ml/prepare_colab_dataset.py", line 59, in get_mongodb_data
+    for doc in cursor:
+  File "/Users/miguel/Desktop/Curso IA/Propuesta Proyecto/AirVLCProyecto/venv/lib/python3.11/site-packages/pymongo/synchronous/cursor.py", line 1166, in __next__
+    return self.next()
+           ^^^^^^^^^^^
+  File "/Users/miguel/Desktop/Curso IA/Propuesta Proyecto/AirVLCProyecto/venv/lib/python3.11/site-packages/pymongo/synchronous/cursor.py", line 1142, in next
+    if len(self._data) or self._refresh():
+                          ^^^^^^^^^^^^^^^
+  File "/Users/miguel/Desktop/Curso IA/Propuesta Proyecto/AirVLCProyecto/venv/lib/python3.11/site-packages/pymongo/synchronous/cursor.py", line 1090, in _refresh
+    self._send_message(q)
+  File "/Users/miguel/Desktop/Curso IA/Propuesta Proyecto/AirVLCProyecto/venv/lib/python3.11/site-packages/pymongo/synchronous/cursor.py", line 985, in _send_message
+    response = client._run_operation(
+               ^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/miguel/Desktop/Curso IA/Propuesta Proyecto/AirVLCProyecto/venv/lib/python3.11/site-packages/pymongo/_csot.py", line 125, in csot_wrapper
+    return func(self, *args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/miguel/Desktop/Curso IA/Propuesta Proyecto/AirVLCProyecto/venv/lib/python3.11/site-packages/pymongo/synchronous/mongo_client.py", line 1956, in _run_operation
+    return self._retryable_read(
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/miguel/Desktop/Curso IA/Propuesta Proyecto/AirVLCProyecto/venv/lib/python3.11/site-packages/pymongo/synchronous/mongo_client.py", line 2076, in _retryable_read
+    return self._retry_internal(
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/miguel/Desktop/Curso IA/Propuesta Proyecto/AirVLCProyecto/venv/lib/python3.11/site-packages/pymongo/_csot.py", line 125, in csot_wrapper
+    return func(self, *args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/miguel/Desktop/Curso IA/Propuesta Proyecto/AirVLCProyecto/venv/lib/python3.11/site-packages/pymongo/synchronous/mongo_client.py", line 2038, in _retry_internal
+    ).run()
+      ^^^^^
+  File "/Users/miguel/Desktop/Curso IA/Propuesta Proyecto/AirVLCProyecto/venv/lib/python3.11/site-packages/pymongo/synchronous/mongo_client.py", line 2811, in run
+    res = self._read() if self._is_read else self._write()
+          ^^^^^^^^^^^^
+  File "/Users/miguel/Desktop/Curso IA/Propuesta Proyecto/AirVLCProyecto/venv/lib/python3.11/site-packages/pymongo/synchronous/mongo_client.py", line 3027, in _read
+    self._server = self._get_server()
+                   ^^^^^^^^^^^^^^^^^^
+  File "/Users/miguel/Desktop/Curso IA/Propuesta Proyecto/AirVLCProyecto/venv/lib/python3.11/site-packages/pymongo/synchronous/mongo_client.py", line 2975, in _get_server
+    return self._client._select_server(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/miguel/Desktop/Curso IA/Propuesta Proyecto/AirVLCProyecto/venv/lib/python3.11/site-packages/pymongo/synchronous/mongo_client.py", line 1851, in _select_server
+    server = topology.select_server(
+             ^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/miguel/Desktop/Curso IA/Propuesta Proyecto/AirVLCProyecto/venv/lib/python3.11/site-packages/pymongo/synchronous/topology.py", line 428, in select_server
+    server = self._select_server(
+             ^^^^^^^^^^^^^^^^^^^^
+  File "/Users/miguel/Desktop/Curso IA/Propuesta Proyecto/AirVLCProyecto/venv/lib/python3.11/site-packages/pymongo/synchronous/topology.py", line 402, in _select_server
+    servers = self.select_servers(
+              ^^^^^^^^^^^^^^^^^^^^
+  File "/Users/miguel/Desktop/Curso IA/Propuesta Proyecto/AirVLCProyecto/venv/lib/python3.11/site-packages/pymongo/synchronous/topology.py", line 298, in select_servers
+    server_descriptions = self._select_servers_loop(
+                          ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/miguel/Desktop/Curso IA/Propuesta Proyecto/AirVLCProyecto/venv/lib/python3.11/site-packages/pymongo/synchronous/topology.py", line 359, in _select_servers_loop
+    raise ServerSelectionTimeoutError(
+pymongo.errors.ServerSelectionTimeoutError: ac-cycnkvq-shard-00-01.j7kscrf.mongodb.net:27017: timed out (configured timeouts: socketTimeoutMS: 20000.0ms, connectTimeoutMS: 20000.0ms),ac-cycnkvq-shard-00-02.j7kscrf.mongodb.net:27017: timed out (configured timeouts: socketTimeoutMS: 20000.0ms, connectTimeoutMS: 20000.0ms),ac-cycnkvq-shard-00-00.j7kscrf.mongodb.net:27017: timed out (configured timeouts: socketTimeoutMS: 20000.0ms, connectTimeoutMS: 20000.0ms), Timeout: 30s, Topology Description: <TopologyDescription id: 69f23460f621ea43942c3fe9, topology_type: ReplicaSetNoPrimary, servers: [<ServerDescription ('ac-cycnkvq-shard-00-00.j7kscrf.mongodb.net', 27017) server_type: Unknown, rtt: None, error=NetworkTimeout('ac-cycnkvq-shard-00-00.j7kscrf.mongodb.net:27017: timed out (configured timeouts: socketTimeoutMS: 20000.0ms, connectTimeoutMS: 20000.0ms)')>, <ServerDescription ('ac-cycnkvq-shard-00-01.j7kscrf.mongodb.net', 27017) server_type: Unknown, rtt: None, error=NetworkTimeout('ac-cycnkvq-shard-00-01.j7kscrf.mongodb.net:27017: timed out (configured timeouts: socketTimeoutMS: 20000.0ms, connectTimeoutMS: 20000.0ms)')>, <ServerDescription ('ac-cycnkvq-shard-00-02.j7kscrf.mongodb.net', 27017) server_type: Unknown, rtt: None, error=NetworkTimeout('ac-cycnkvq-shard-00-02.j7kscrf.mongodb.net:27017: timed out (configured timeouts: socketTimeoutMS: 20000.0ms, connectTimeoutMS: 20000.0ms)')>]>

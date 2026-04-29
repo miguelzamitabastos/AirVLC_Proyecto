@@ -1,40 +1,42 @@
 {
   "index_patterns": ["airvlc-calidad-aire*"],
-  "settings": {
-    "number_of_shards": 1,
-    "number_of_replicas": 0
-  },
-  "mappings": {
-    "properties": {
-      "@timestamp":           { "type": "date" },
-      "fecha":                { "type": "keyword" },
-      "dia_semana":           { "type": "keyword" },
-      "dia_mes":              { "type": "integer" },
-      "hora":                 { "type": "keyword" },
-      "estacion":             { "type": "keyword" },
-      "pm1":                  { "type": "float" },
-      "pm25":                 { "type": "float" },
-      "pm10":                 { "type": "float" },
-      "no":                   { "type": "float" },
-      "no2":                  { "type": "float" },
-      "nox":                  { "type": "float" },
-      "o3":                   { "type": "float" },
-      "so2":                  { "type": "float" },
-      "co":                   { "type": "float" },
-      "velocidad_viento":     { "type": "float" },
-      "direccion_viento":     { "type": "float" },
-      "nh3":                  { "type": "float" },
-      "c7h8":                 { "type": "float" },
-      "c6h6":                 { "type": "float" },
-      "ruido":                { "type": "float" },
-      "c8h10":                { "type": "float" },
-      "temperatura":          { "type": "float" },
-      "humedad_relativa":     { "type": "float" },
-      "presion":              { "type": "float" },
-      "radiacion":            { "type": "float" },
-      "precipitacion":        { "type": "float" },
-      "velocidad_max_viento": { "type": "float" },
-      "location":             { "type": "geo_point" }
+  "template": {
+    "settings": {
+      "number_of_shards": 1,
+      "number_of_replicas": 0
+    },
+    "mappings": {
+      "properties": {
+        "@timestamp":           { "type": "date" },
+        "fecha":                { "type": "keyword" },
+        "dia_semana":           { "type": "keyword" },
+        "dia_mes":              { "type": "integer" },
+        "hora":                 { "type": "keyword" },
+        "estacion":             { "type": "keyword" },
+        "pm1":                  { "type": "float" },
+        "pm25":                 { "type": "float" },
+        "pm10":                 { "type": "float" },
+        "no":                   { "type": "float" },
+        "no2":                  { "type": "float" },
+        "nox":                  { "type": "float" },
+        "o3":                   { "type": "float" },
+        "so2":                  { "type": "float" },
+        "co":                   { "type": "float" },
+        "velocidad_viento":     { "type": "float" },
+        "direccion_viento":     { "type": "float" },
+        "nh3":                  { "type": "float" },
+        "c7h8":                 { "type": "float" },
+        "c6h6":                 { "type": "float" },
+        "ruido":                { "type": "float" },
+        "c8h10":                { "type": "float" },
+        "temperatura":          { "type": "float" },
+        "humedad_relativa":     { "type": "float" },
+        "presion":              { "type": "float" },
+        "radiacion":            { "type": "float" },
+        "precipitacion":        { "type": "float" },
+        "velocidad_max_viento": { "type": "float" },
+        "location":             { "type": "geo_point" }
+      }
     }
   }
 }
