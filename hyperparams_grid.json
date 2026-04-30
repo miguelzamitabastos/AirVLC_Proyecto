@@ -1,0 +1,117 @@
+{
+  "description": "Grid de hiperparámetros para búsqueda sistemática del modelo LSTM PM2.5",
+  "grid": [
+    {
+      "learning_rate": 0.001,
+      "batch_size": 64,
+      "optimizer": "adam",
+      "dropout": 0.2,
+      "seq_length": 24
+    },
+    {
+      "learning_rate": 0.001,
+      "batch_size": 128,
+      "optimizer": "adam",
+      "dropout": 0.3,
+      "seq_length": 24
+    },
+    {
+      "learning_rate": 0.0005,
+      "batch_size": 64,
+      "optimizer": "adam",
+      "dropout": 0.2,
+      "seq_length": 24
+    },
+    {
+      "learning_rate": 0.0005,
+      "batch_size": 128,
+      "optimizer": "adam",
+      "dropout": 0.3,
+      "seq_length": 24
+    },
+    {
+      "learning_rate": 0.0001,
+      "batch_size": 64,
+      "optimizer": "adam",
+      "dropout": 0.2,
+      "seq_length": 24
+    },
+    {
+      "learning_rate": 0.0001,
+      "batch_size": 128,
+      "optimizer": "adam",
+      "dropout": 0.3,
+      "seq_length": 24
+    },
+    {
+      "learning_rate": 0.001,
+      "batch_size": 64,
+      "optimizer": "rmsprop",
+      "dropout": 0.2,
+      "seq_length": 24
+    },
+    {
+      "learning_rate": 0.0005,
+      "batch_size": 64,
+      "optimizer": "rmsprop",
+      "dropout": 0.3,
+      "seq_length": 24
+    },
+    {
+      "learning_rate": 0.001,
+      "batch_size": 64,
+      "optimizer": "adam",
+      "dropout": 0.4,
+      "seq_length": 24
+    },
+    {
+      "learning_rate": 0.0005,
+      "batch_size": 128,
+      "optimizer": "adam",
+      "dropout": 0.4,
+      "seq_length": 24
+    },
+    {
+      "learning_rate": 0.001,
+      "batch_size": 256,
+      "optimizer": "adam",
+      "dropout": 0.2,
+      "seq_length": 24
+    },
+    {
+      "learning_rate": 0.001,
+      "batch_size": 32,
+      "optimizer": "adam",
+      "dropout": 0.2,
+      "seq_length": 24
+    },
+    {
+      "learning_rate": 0.001,
+      "batch_size": 64,
+      "optimizer": "adam",
+      "dropout": 0.2,
+      "seq_length": 48
+    },
+    {
+      "learning_rate": 0.0005,
+      "batch_size": 64,
+      "optimizer": "adam",
+      "dropout": 0.3,
+      "seq_length": 48
+    },
+    {
+      "learning_rate": 0.001,
+      "batch_size": 128,
+      "optimizer": "adam",
+      "dropout": 0.3,
+      "seq_length": 48
+    },
+    {
+      "learning_rate": 0.0005,
+      "batch_size": 128,
+      "optimizer": "adam",
+      "dropout": 0.2,
+      "seq_length": 48
+    }
+  ]
+}

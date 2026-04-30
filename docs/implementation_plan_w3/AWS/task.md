@@ -1,0 +1,8 @@
+- [x] Create `src/services/aws` directory structure
+- [x] Update `.env` with AWS credentials template
+- [x] Implement `config.py` for AWS client initialization
+- [x] Implement `polly_service.py` (TTS)
+- [x] Implement `transcribe_service.py` (ASR)
+- [x] Implement `lex_service.py` (NLU)
+- [x] Implement `test_connectivity.py`
+- [/] Verify connectivity with user-provided credentials
