@@ -1,0 +1,5 @@
+architecture,learning_rate,batch_size,optimizer,dropout,seq_length,best_epoch,total_epochs,training_time_sec,n_params,test_mae_real,test_rmse_real,test_r2_real
+LSTM_2Layer,0.001,64,rmsprop,0.2,24,2,9,159.3,126753,2.7932,4.8977,0.7467
+LSTM_3Layer,0.001,64,rmsprop,0.2,24,13,20,417.1,138657,2.6517,4.8021,0.7565
+BiLSTM,0.001,64,rmsprop,0.2,24,5,12,305.3,85793,2.7549,4.7455,0.7622
+LSTM_Attention,0.001,64,rmsprop,0.2,24,17,24,425.3,126818,2.6375,4.6949,0.7672

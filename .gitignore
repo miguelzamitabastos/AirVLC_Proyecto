@@ -59,4 +59,8 @@ docker/redis/data/
 .Spotlight-V100
 .Trashes
 ehthumbs.db
-Thumbs.db
+*.log
+
+# Audio files
+*.mp3
+*.wav

@@ -1,0 +1,58 @@
+{
+  "classes": [
+    "bueno",
+    "malo",
+    "moderado",
+    "peligroso"
+  ],
+  "risk_levels": {
+    "bueno": {
+      "min": 0,
+      "max": 12.0,
+      "color": "#2ecc71",
+      "emoji": "\ud83d\udfe2"
+    },
+    "moderado": {
+      "min": 12.1,
+      "max": 35.4,
+      "color": "#f39c12",
+      "emoji": "\ud83d\udfe1"
+    },
+    "malo": {
+      "min": 35.5,
+      "max": 55.4,
+      "color": "#e67e22",
+      "emoji": "\ud83d\udfe0"
+    },
+    "peligroso": {
+      "min": 55.5,
+      "max": Infinity,
+      "color": "#e74c3c",
+      "emoji": "\ud83d\udd34"
+    }
+  },
+  "feature_columns": [
+    "no2",
+    "o3",
+    "temperatura",
+    "velocidad_viento",
+    "precipitacion",
+    "humedad_relativa",
+    "hora_del_dia",
+    "dia_de_la_semana",
+    "pm25_lag1",
+    "pm25_lag2",
+    "pm25_lag3",
+    "pm25_rolling_6h",
+    "station_Francia",
+    "station_Mol\u00ed del Sol",
+    "station_Pista de Silla",
+    "station_Puerto Moll Trans. Ponent",
+    "station_Puerto Valencia",
+    "station_Puerto llit antic T\u00faria",
+    "station_Universidad Polit\u00e9cnica"
+  ],
+  "best_classifier": "Red Neuronal",
+  "best_accuracy": 0.8956,
+  "best_f1": 0.895
+}
