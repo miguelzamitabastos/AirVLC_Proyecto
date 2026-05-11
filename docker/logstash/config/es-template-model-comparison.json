@@ -1,0 +1,26 @@
+{
+  "index_patterns": ["airvlc-model-comparison-v1v2*"],
+  "template": {
+    "settings": {
+      "number_of_shards": 1,
+      "number_of_replicas": 0
+    },
+    "mappings": {
+      "properties": {
+        "@timestamp":           { "type": "date" },
+        "timestamp":            { "type": "date" },
+        "version":              { "type": "keyword" },
+        "architecture":         { "type": "keyword" },
+        "family":               { "type": "keyword" },
+        "target":               { "type": "keyword" },
+        "mae":                  { "type": "float" },
+        "rmse":                 { "type": "float" },
+        "r2":                   { "type": "float" },
+        "n_params":             { "type": "long" },
+        "training_time_sec":    { "type": "float" },
+        "best_epoch":           { "type": "integer" },
+        "is_winner":            { "type": "byte" }
+      }
+    }
+  }
+}

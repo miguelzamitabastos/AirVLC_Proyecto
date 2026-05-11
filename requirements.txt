@@ -30,6 +30,7 @@ elasticsearch>=8.10.0,<9.0.0
 flask>=3.0.0
 gunicorn>=21.2.0
 python-dotenv>=1.0.0
+pytest>=8.0.0
 
 # AWS (Boto3 para Polly/Transcribe)
 boto3>=1.28.0

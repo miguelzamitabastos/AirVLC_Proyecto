@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!-- Identificador único del servicio -->
+    <key>Label</key>
+    <string>com.airvlc.hourly_refresh</string>
+
+    <!-- Comando a ejecutar -->
+    <key>ProgramArguments</key>
+    <array>
+        <!-- EDITAR: ruta al python del virtualenv -->
+        <string>/Users/miguel/Desktop/Curso IA/Propuesta Proyecto/AirVLCProyecto/venv/bin/python</string>
+        <!-- EDITAR: ruta al script -->
+        <string>/Users/miguel/Desktop/Curso IA/Propuesta Proyecto/AirVLCProyecto/src/scripts/hourly_data_refresh.py</string>
+        <string>--once</string>
+    </array>
+
+    <!-- Directorio de trabajo -->
+    <key>WorkingDirectory</key>
+    <string>/Users/miguel/Desktop/Curso IA/Propuesta Proyecto/AirVLCProyecto</string>
+
+    <!-- Ejecutar cada hora (3600 segundos) -->
+    <key>StartInterval</key>
+    <integer>3600</integer>
+
+    <!-- Ejecutar al cargar el servicio -->
+    <key>RunAtLoad</key>
+    <true/>
+
+    <!-- Logs de salida -->
+    <key>StandardOutPath</key>
+    <string>/Users/miguel/airvlc_logs/launchd_stdout.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/miguel/airvlc_logs/launchd_stderr.log</string>
+
+    <!-- Variables de entorno (cargar .env manualmente en el script) -->
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/usr/local/bin:/usr/bin:/bin</string>
+    </dict>
+
+    <!-- No reiniciar si falla (para evitar bucles) -->
+    <key>KeepAlive</key>
+    <false/>
+</dict>
+</plist>

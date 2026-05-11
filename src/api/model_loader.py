@@ -20,6 +20,12 @@ try:
     # Permitir deserialización de capas Lambda (fallback para modelos legacy)
     tf.keras.config.enable_unsafe_deserialization()
 
+    # Custom objects (v2 multitarget)
+    try:
+        from src.api._keras_custom import BahdanauAttention
+    except Exception:  # pragma: no cover
+        BahdanauAttention = None
+
     # Registrar capa custom de Atención para que load_model la reconozca
     @tf.keras.utils.register_keras_serializable(package="AirVLC")
     class AttentionLayer(Layer):
@@ -90,6 +96,7 @@ class ModelLoader:
         # Intentar cargar el mejor modelo
         # Prioridad: attention_fixed > attention_original > day7 best > day6 best
         priority_models = [
+            ('LSTM_Attention_Multi', os.path.join(self.models_dir, 'modelo_11_v2_Multitarget', 'best_model_v2.keras')),
             ('LSTM_Attention', os.path.join(self.models_dir, 'modelo_07_Colab', 'lstm_attention_fixed.keras')),
             ('LSTM_Attention', os.path.join(self.models_dir, 'modelo_07_Colab', 'lstm_attention_day7.keras')),
             ('Best_Day7', os.path.join(self.models_dir, 'modelo_07_Colab', 'best_model_day7.keras')),
@@ -102,7 +109,11 @@ class ModelLoader:
             if name in self.models:
                 continue  # Ya cargado (ej: attention_fixed ya cargó, no intentar la original)
             try:
-                model = load_model(path)
+                # v2 model requires BahdanauAttention
+                if name == 'LSTM_Attention_Multi' and BahdanauAttention is not None:
+                    model = load_model(path, custom_objects={'BahdanauAttention': BahdanauAttention})
+                else:
+                    model = load_model(path)
                 self.models[name] = model
                 if self.best_model is None:
                     self.best_model = model

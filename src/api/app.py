@@ -25,11 +25,16 @@ import sys
 from flask import Flask
 import logging
 
+from dotenv import load_dotenv
+
 # Añadir el directorio raíz al path para imports
 ROOT_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
 sys.path.insert(0, ROOT_DIR)
 
+load_dotenv(os.path.join(ROOT_DIR, ".env"))
+
 from src.api.routes import register_routes
+from src.api.routes_v2 import register_routes_v2
 from src.api.model_loader import ModelLoader
 from src.api.es_indexer import ESIndexer
 
@@ -70,8 +75,21 @@ def create_app():
         print(f"⚠️ ES Indexer no disponible: {e}")
         app.config['ES_INDEXER'] = None
 
+    # Inicializar ES Indexer v2 para indexar predicciones multitarget
+    try:
+        es_indexer_v2 = ESIndexer(index_name='airvlc-predictions-v2')
+        app.config['ES_INDEXER_V2'] = es_indexer_v2
+        if es_indexer_v2.is_connected:
+            print("✅ ES Indexer v2 conectado (indexará predicciones en airvlc-predictions-v2)")
+        else:
+            print("⚠️ ES Indexer v2 no conectado. Predicciones v2 NO se indexarán.")
+    except Exception as e:
+        print(f"⚠️ ES Indexer v2 no disponible: {e}")
+        app.config['ES_INDEXER_V2'] = None
+
     # Registrar rutas
     register_routes(app)
+    register_routes_v2(app)
 
     return app
 

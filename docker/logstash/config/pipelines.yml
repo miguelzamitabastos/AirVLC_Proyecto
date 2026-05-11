@@ -3,3 +3,6 @@
 
 - pipeline.id: main
   path.config: "/usr/share/logstash/pipeline/logstash.conf"
+
+- pipeline.id: model_comparison_v1v2
+  path.config: "/usr/share/logstash/pipeline/model_comparison.conf"

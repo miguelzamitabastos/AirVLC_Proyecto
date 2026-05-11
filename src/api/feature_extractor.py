@@ -1,5 +1,4 @@
 import os
-import pandas as pd
 import numpy as np
 import pickle
 
@@ -34,6 +33,8 @@ class FeatureExtractor:
         
     def _load_data(self):
         print(f"Cargando dataset base para extracción: {self.dataset_path}")
+        import pandas as pd
+
         self.df = pd.read_csv(self.dataset_path)
         # Ordenamos temporalmente por si acaso
         if 'fecha' in self.df.columns:

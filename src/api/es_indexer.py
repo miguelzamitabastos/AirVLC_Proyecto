@@ -27,6 +27,7 @@ Diseño:
 import os
 import logging
 from datetime import datetime
+import re
 
 logger = logging.getLogger(__name__)
 
@@ -114,20 +115,47 @@ class ESIndexer:
 
         try:
             doc = self._build_document(prediction_data)
-            self._es_client.index(index=self.index_name, document=doc)
+            doc_id = prediction_data.get("document_id") or prediction_data.get("_id")
+            if doc_id:
+                self._es_client.index(index=self.index_name, id=str(doc_id), document=doc)
+            else:
+                self._es_client.index(index=self.index_name, document=doc)
             return True
         except Exception as e:
             logger.warning(f"⚠️ Error indexando predicción: {e}")
             return False
 
+    @staticmethod
+    def build_document_id(*parts: str, max_len: int = 256) -> str:
+        """Genera un ID determinista, seguro para ES.
+
+        Se usa para hacer la ingesta idempotente (retries de Node-RED) sin
+        perder histórico: si cambia el timestamp objetivo, cambia el ID.
+        """
+        raw = "|".join([p for p in parts if p is not None])
+        safe = re.sub(r"[^a-zA-Z0-9._|-]+", "_", raw).strip("_")
+        if len(safe) > max_len:
+            # fallback estable: recorta por el final (timestamp suele ir al final)
+            safe = safe[-max_len:]
+        return safe
+
     def _build_document(self, data):
         """Construye el documento ES a partir de los datos de predicción."""
         pm25_pred = data.get('pm25_predicted', data.get('prediction_pm25'))
         pm25_actual = data.get('pm25_actual')
+        no2_actual = data.get("no2_actual")
+        o3_actual = data.get("o3_actual")
         station = data.get('station')
 
+        # Para cruzar predicciones con reales en Kibana, el @timestamp debe ser
+        # el momento PARA el que se hace la predicción (target_timestamp).
+        target_ts = data.get('target_timestamp')
+        generated_at = data.get('generated_at', data.get('timestamp', datetime.utcnow().isoformat()))
+        
         doc = {
-            '@timestamp': data.get('@timestamp', data.get('timestamp', datetime.utcnow().isoformat())),
+            '@timestamp': target_ts if target_ts else generated_at,
+            'generated_at': generated_at,
+            'horizon_hours': data.get('horizon_hours', 0),
             'pm25_predicted': pm25_pred,
             'model_used': data.get('model_used', 'unknown'),
             'risk_level': data.get('risk_level', data.get('level')),
@@ -139,11 +167,30 @@ class ESIndexer:
             'prediction_type': data.get('prediction_type', 'realtime'),
         }
 
+        # v2 fields (optional)
+        # Store predictions using stable field names for v2 index templates
+        if 'pm25_pred' in data:
+            doc['pm25_pred'] = data.get('pm25_pred')
+        if 'no2_pred' in data:
+            doc['no2_pred'] = data.get('no2_pred')
+        if 'o3_pred' in data:
+            doc['o3_pred'] = data.get('o3_pred')
+        for k in ['risk_pm25', 'risk_no2', 'risk_o3', 'worst_pollutant', 'worst_level']:
+            if k in data:
+                doc[k] = data.get(k)
+
         # Añadir valor real y residual si disponible
         if pm25_actual is not None:
             doc['pm25_actual'] = pm25_actual
-            doc['residual'] = pm25_pred - pm25_actual
-            doc['absolute_error'] = abs(pm25_pred - pm25_actual)
+            if pm25_pred is not None:
+                doc['residual'] = pm25_pred - pm25_actual
+                doc['absolute_error'] = abs(pm25_pred - pm25_actual)
+
+        # Añadir reales multitarget si llegan (para dashboards real vs pred)
+        if no2_actual is not None:
+            doc["no2_actual"] = no2_actual
+        if o3_actual is not None:
+            doc["o3_actual"] = o3_actual
 
         # Añadir coordenadas de la estación
         if station and station in STATION_COORDS:

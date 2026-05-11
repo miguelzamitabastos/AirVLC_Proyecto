@@ -1,0 +1,16 @@
+{
+  "include": [
+    "**/*.py",
+    "notebooks/05_Colab_LSTM_Model.ipynb"
+  ],
+  "exclude": [
+    "**/*.ipynb",
+    "node_modules/**",
+    ".git/**"
+  ],
+  "output": {
+    "filePath": "repomix-output.xml",
+    "removeComments": true,
+    "topFilesLength": 5
+  }
+}
