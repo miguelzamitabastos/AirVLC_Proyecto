@@ -83,7 +83,14 @@ class ESIndexer:
             if self._es_client.ping():
                 logger.info(f"✅ ESIndexer conectado a {self.es_host}")
             else:
-                logger.warning(f"⚠️ ES no responde en {self.es_host}. Indexación deshabilitada.")
+                logger.warning(
+                    f"⚠️ ES no responde en {self.es_host}. Indexación deshabilitada. "
+                    "Levanta Elasticsearch (p. ej. desde la raíz del repo: "
+                    "`docker compose up -d elasticsearch`) y reinicia la API. "
+                    "Kibana en Docker: configuración manual → URL del nodo "
+                    "`http://elasticsearch:9200` (nombre del servicio en la red compose), "
+                    "sin usuario/contraseña con el compose de desarrollo del proyecto."
+                )
                 self.enabled = False
         except ImportError:
             logger.warning("⚠️ elasticsearch-py no instalado. Indexación deshabilitada.")

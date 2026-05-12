@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import math
 import os
+import time
 from datetime import datetime
 from datetime import timezone, timedelta
 from typing import Dict, List, Optional, Tuple
@@ -224,7 +225,8 @@ def _get_cached_map_entry(station: str, pollutant: str, horizon_hours: int) -> O
 
 
 def _fetch_observed_from_mongo(station: str, pollutant: str, hours: int = 72) -> tuple[list[dict], dict]:
-    """Obtiene los últimos `hours` puntos observados desde Mongo (sin sintéticos)."""
+    """Obtiene los últimos `hours` puntos observados desde Mongo (sin sintéticos
+    y excluyendo outliers marcados por el ingest GVA RVVCCA)."""
     client, coll = _mongo_air_collection()
     if coll is None:
         return [], {"error": "Mongo no configurado"}
@@ -234,8 +236,15 @@ def _fetch_observed_from_mongo(station: str, pollutant: str, hours: int = 72) ->
             "estacion": station,
             "fecha": {"$gte": since},
             "is_synthetic": {"$ne": True},
+            "$or": [
+                {"outliers": {"$exists": False}},
+                {"outliers": {"$nin": [pollutant]}},
+            ],
         }
-        proj = {"_id": 0, "fecha": 1, pollutant: 1, "source": 1}
+        proj = {
+            "_id": 0, "fecha": 1, pollutant: 1, "source": 1,
+            "station_id": 1, "is_outlier_any": 1,
+        }
         cur = coll.find(q, proj).sort("fecha", 1)
         obs: list[dict] = []
         for doc in cur:
@@ -247,7 +256,10 @@ def _fetch_observed_from_mongo(station: str, pollutant: str, hours: int = 72) ->
                 v = float(val)
             except Exception:
                 continue
-            # Normalizar timestamp a ISO con Z
+            # Filtra ceros falsos / nulos típicos del sensor caído (la app
+            # interpolará el hueco visualmente; mejor no dibujar el punto a 0).
+            if v <= 0:
+                continue
             if hasattr(ts, "tzinfo") and ts.tzinfo is None:
                 ts = ts.replace(tzinfo=timezone.utc)
             iso = ts.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
@@ -257,9 +269,24 @@ def _fetch_observed_from_mongo(station: str, pollutant: str, hours: int = 72) ->
         if obs:
             meta["observed_last_timestamp"] = obs[-1]["timestamp"]
             meta["observed_points"] = len(obs)
-            # cobertura esperada (1 punto/h): % horas presentes aprox.
             meta["expected_points"] = int(hours)
             meta["coverage_ratio"] = round(len(obs) / float(max(1, int(hours))), 3)
+            # Edad del último dato: para chip verde/amarillo/rojo en Flutter
+            try:
+                last_dt = datetime.fromisoformat(obs[-1]["timestamp"].replace("Z", "+00:00"))
+                age_min = int((datetime.now(timezone.utc) - last_dt).total_seconds() / 60)
+                meta["observed_age_minutes"] = age_min
+                if age_min < 120:           # < 2 h
+                    meta["freshness"] = "fresh"
+                elif age_min < 1440:        # 2-24 h
+                    meta["freshness"] = "stale"
+                else:                       # > 24 h
+                    meta["freshness"] = "missing"
+            except Exception:
+                pass
+        else:
+            meta["freshness"] = "missing"
+            meta["observed_points"] = 0
         return obs, meta
     finally:
         try:
@@ -410,15 +437,19 @@ def create_api_v2_blueprint(
 
     api_v2_bp = Blueprint("api_v2", __name__, url_prefix="/api/v2")
 
-    @api_v2_bp.route("/health", methods=["GET"])
+    @api_v2_bp.route("/health", methods=["GET", "HEAD"])
     def health_check_v2():
         loader = current_app.config.get("MODEL_LOADER")
         es_v2 = current_app.config.get("ES_INDEXER_V2")
+        es_v1 = current_app.config.get("ES_INDEXER")
+        started = current_app.config.get("START_TIME_MONOTONIC")
+        uptime_s = round(time.monotonic() - started, 3) if started is not None else None
         status = {
             "status": "healthy",
             "timestamp": datetime.now().isoformat(),
             "service": "AirVLC v2 Multitarget API",
             "version": "2.0.0",
+            "uptime_seconds": uptime_s,
             "models": {
                 "loaded": bool(loader and loader.is_ready),
                 "best_model": getattr(loader, "best_model_name", None) if loader else None,
@@ -427,12 +458,20 @@ def create_api_v2_blueprint(
                 "v2_loaded": bool(loader and getattr(loader, "models", {}).get("LSTM_Attention_Multi") is not None),
             },
             "elasticsearch": {
-                "connected": bool(es_v2 and es_v2.is_connected),
-                "index": getattr(es_v2, "index_name", "airvlc-predictions-v2"),
+                "predictions_v2": {
+                    "connected": bool(es_v2 and es_v2.is_connected),
+                    "index": getattr(es_v2, "index_name", "airvlc-predictions-v2"),
+                },
+                "predictions_v1": {
+                    "connected": bool(es_v1 and getattr(es_v1, "is_connected", False)),
+                    "index": getattr(es_v1, "index_name", "airvlc-predictions"),
+                },
             },
         }
 
         http_code = 200 if (loader and loader.is_ready) else 503
+        if request.method == "HEAD":
+            return "", http_code
         return jsonify(status), http_code
 
     @api_v2_bp.route("/health/freshness", methods=["GET"])
@@ -1060,16 +1099,22 @@ def create_api_v2_blueprint(
 
     @api_v2_bp.route("/timeseries", methods=["GET"])
     def timeseries():
-        """Devuelve serie temporal para una estación:
-        - Últimas 72h de datos observados (del CSV)
-        - Forecast a 24/48/72h usando el modelo
+        """Devuelve serie temporal para una estación.
 
         Query params:
-            station    (str): nombre de la estación
-            pollutant  (str): pm25 | no2 | o3
+            station       (str): nombre de la estación (canónico v2 o GVA).
+            pollutant     (str): pm25 | no2 | o3 (default pm25).
+            window_hours  (int): 24 | 48 | 72 (default 72). Tamaño de la
+                                 ventana observada que devolvemos.
         """
         station_raw = request.args.get("station")
         pollutant = request.args.get("pollutant", "pm25").lower().strip()
+        try:
+            window_hours = int(request.args.get("window_hours", 72))
+        except (TypeError, ValueError):
+            window_hours = 72
+        if window_hours not in (24, 48, 72):
+            window_hours = 72
 
         if not station_raw:
             return jsonify(format_error_response("Falta 'station' en query.", 400)), 400
@@ -1081,7 +1126,7 @@ def create_api_v2_blueprint(
         resolved = _resolve_station(station_raw) or station_raw
 
         # ---- observed data (fuente de verdad: Mongo) ----
-        observed, obs_meta = _fetch_observed_from_mongo(resolved, pollutant, hours=72)
+        observed, obs_meta = _fetch_observed_from_mongo(resolved, pollutant, hours=window_hours)
 
         # ---- forecast (predicciones reales del modelo LSTM) ----
         forecast = []
@@ -1139,14 +1184,99 @@ def create_api_v2_blueprint(
             "success": True,
             "station": resolved,
             "pollutant": pollutant,
+            "window_hours": window_hours,
             "observed": observed,
             "forecast": forecast,
             "meta": {
                 **(obs_meta or {}),
+                "window_hours": window_hours,
                 "observed_source": "mongo",
             },
             "server_timestamp": datetime.now().isoformat(),
         }), 200
+
+    @api_v2_bp.route("/stations", methods=["GET"])
+    def list_stations():
+        """Devuelve el catálogo de estaciones disponibles en Mongo (ingest GVA RVVCCA).
+
+        Query params:
+            province  (str, opcional): filtra por provincia (substring case-insensitive).
+                                       Ejemplos: "Valencia", "Castelló".
+            only_canonical (bool):     si "true", devuelve solo las 7 del modelo v2.
+        """
+        province = (request.args.get("province") or "").strip().lower()
+        only_canonical = (request.args.get("only_canonical") or "").lower() in {"1", "true", "yes"}
+
+        client, coll = _mongo_air_collection()
+        if coll is None:
+            return jsonify({
+                "success": True,
+                "stations": [
+                    {"estacion": s, "is_canonical_v2": True, "source": "model_defaults"}
+                    for s in V2_STATIONS
+                ],
+                "meta": {"mongo": False, "fallback": "v2_canonical"},
+            }), 200
+
+        try:
+            # Última observación de cada estación: agrupamos por station_id y
+            # nos quedamos con el doc más reciente.
+            pipeline = [
+                {"$sort": {"fecha": -1}},
+                {"$group": {
+                    "_id": "$station_id",
+                    "doc": {"$first": "$$ROOT"},
+                }},
+                {"$replaceRoot": {"newRoot": "$doc"}},
+            ]
+            entries = []
+            for d in coll.aggregate(pipeline):
+                if only_canonical and not d.get("is_canonical_v2"):
+                    continue
+                prov = (d.get("provincia") or "").lower()
+                if province and province not in prov:
+                    continue
+                ts = d.get("fecha")
+                if ts and hasattr(ts, "tzinfo"):
+                    if ts.tzinfo is None:
+                        ts = ts.replace(tzinfo=timezone.utc)
+                    age_min = int((datetime.now(timezone.utc) - ts).total_seconds() / 60)
+                    iso = ts.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
+                else:
+                    age_min, iso = None, None
+                entries.append({
+                    "estacion": d.get("estacion"),
+                    "station_id": d.get("station_id"),
+                    "station_code": d.get("station_code"),
+                    "station_name_gva": d.get("station_name_gva"),
+                    "is_canonical_v2": bool(d.get("is_canonical_v2")),
+                    "municipality": d.get("municipality"),
+                    "provincia": d.get("provincia"),
+                    "comarca": d.get("comarca"),
+                    "longitude": d.get("longitude"),
+                    "latitude": d.get("latitude"),
+                    "last_observed": iso,
+                    "age_minutes": age_min,
+                })
+            entries.sort(key=lambda x: (not x["is_canonical_v2"], x.get("estacion") or ""))
+            return jsonify({
+                "success": True,
+                "stations": entries,
+                "meta": {
+                    "count": len(entries),
+                    "source": "mongo:aire_realtime",
+                    "filters": {
+                        "province": province or None,
+                        "only_canonical": only_canonical,
+                    },
+                },
+                "server_timestamp": datetime.now().isoformat(),
+            }), 200
+        finally:
+            try:
+                client.close()
+            except Exception:
+                pass
 
     @api_v2_bp.route("/ranking", methods=["GET"])
     def ranking():

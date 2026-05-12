@@ -10,18 +10,13 @@ class LexService:
 
     def recognize_text(self, bot_id, bot_alias_id, locale_id, text, session_id='test-session'):
         """Sends text to a Lex bot and returns the recognized intent."""
-        try:
-            response = self.runtime_client.recognize_text(
-                botId=bot_id,
-                botAliasId=bot_alias_id,
-                localeId=locale_id,
-                sessionId=session_id,
-                text=text
-            )
-            return response
-        except Exception as e:
-            print(f"Error in Lex recognize_text: {e}")
-            raise e
+        return self.runtime_client.recognize_text(
+            botId=bot_id,
+            botAliasId=bot_alias_id,
+            localeId=locale_id,
+            sessionId=session_id,
+            text=text,
+        )
 
     def list_bots(self):
         """Lists available bots to verify connectivity."""

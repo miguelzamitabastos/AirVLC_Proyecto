@@ -36,12 +36,29 @@ class _FakeChatbot:
 def _make_app():
     app = Flask(__name__)
     app.config["TESTING"] = True
+    app.config["START_TIME_MONOTONIC"] = __import__("time").monotonic()
     app.config["MODEL_LOADER"] = _FakeLoader()
+    app.config["ES_INDEXER"] = None
     app.config["ES_INDEXER_V2"] = None
 
     bp = create_api_v2_blueprint(feature_extractor=_FakeExtractor(), chatbot=_FakeChatbot())
     app.register_blueprint(bp)
     return app
+
+
+def test_v2_health_and_head():
+    app = _make_app()
+    client = app.test_client()
+    r = client.get("/api/v2/health")
+    assert r.status_code == 200
+    data = r.get_json()
+    assert data["models"]["v2_loaded"] is True
+    assert "elasticsearch" in data
+    assert "predictions_v1" in data["elasticsearch"]
+    assert "predictions_v2" in data["elasticsearch"]
+    rh = client.head("/api/v2/health")
+    assert rh.status_code == 200
+    assert rh.get_data(as_text=True) == ""
 
 
 def test_v2_predict_contract_station():

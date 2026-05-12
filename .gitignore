@@ -26,6 +26,7 @@ share/python-wheels/
 *.egg
 
 # Virtual environments
+.venv/
 venv/
 env/
 ENV/
@@ -64,3 +65,4 @@ ehthumbs.db
 # Audio files
 *.mp3
 *.wav
+

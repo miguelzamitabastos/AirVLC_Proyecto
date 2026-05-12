@@ -64,18 +64,36 @@ class ChatbotOrchestratorV2:
                 session_id=session_id,
             )
         except Exception as e:
+            exc_info = True
+            try:
+                from botocore.exceptions import ClientError
+
+                if isinstance(e, ClientError):
+                    code = (e.response or {}).get("Error", {}).get("Code", "")
+                    if code == "ExpiredTokenException":
+                        exc_info = False
+            except ImportError:
+                pass
             logger.warning(
                 "Lex recognize_text falló (bot_id=%s alias=%s locale=%s): %s",
                 self.bot_id,
                 self.bot_alias_id,
                 self.locale_id,
                 e,
-                exc_info=True,
+                exc_info=exc_info,
             )
+            reply = "Lo siento, tengo problemas conectando con mi motor NLU en AWS."
+            err_s = str(e)
+            if "ExpiredToken" in err_s:
+                reply = (
+                    "Las credenciales AWS del servidor caducaron. "
+                    "Renueva el token en AWS Academy y actualiza el .env del proyecto "
+                    "(docs/v2AirVLCdocs/sprint4/aws_keys_setup.md)."
+                )
             return {
-                "reply": "Lo siento, tengo problemas conectando con mi motor NLU en AWS.",
+                "reply": reply,
                 "intent": "Error",
-                "error": str(e),
+                "error": err_s,
             }
 
         interpretations = lex_response.get("interpretations", [])

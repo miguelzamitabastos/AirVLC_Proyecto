@@ -88,6 +88,12 @@ def check_api_health():
             doc["available_models"] = data.get("models", {}).get("available_models", [])
             doc["model_count"] = len(doc["available_models"])
             doc["api_version"] = data.get("version", "unknown")
+            doc["uptime_seconds"] = data.get("uptime_seconds")
+            elas = data.get("elasticsearch") or {}
+            p1 = elas.get("predictions_v1") or {}
+            p2 = elas.get("predictions_v2") or {}
+            doc["es_indexer_connected"] = bool(p1.get("connected"))
+            doc["es_indexer_v2_connected"] = bool(p2.get("connected"))
         else:
             doc["status"] = "degraded"
             doc["models_loaded"] = False

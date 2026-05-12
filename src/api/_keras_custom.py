@@ -33,8 +33,11 @@ if TF_AVAILABLE:
         def __init__(self, units: int = 32, **kwargs):
             super().__init__(**kwargs)
             self.units = int(units)
+
+        def build(self, input_shape):
             self.W = Dense(self.units, activation="tanh", name="attn_W")
             self.V = Dense(1, name="attn_V")
+            super().build(input_shape)
 
         def call(self, inputs):
             # inputs: (B, T, F)

@@ -21,6 +21,7 @@ Endpoints:
 
 import os
 import sys
+import time
 
 from flask import Flask
 import logging
@@ -42,6 +43,7 @@ from src.api.es_indexer import ESIndexer
 def create_app():
     """Factory para crear la aplicación Flask."""
     app = Flask(__name__)
+    app.config["START_TIME_MONOTONIC"] = time.monotonic()
 
     # Configuración
     app.config['JSON_SORT_KEYS'] = False
@@ -104,10 +106,11 @@ if __name__ == '__main__':
     print(f"  📂 Modelos: {app.config['MODELS_DIR']}")
     print(f"  🔗 URL: http://localhost:5001")
     print(f"  📋 Endpoints:")
-    print(f"     GET  /api/health")
+    print(f"     GET|HEAD /api/health")
     print(f"     POST /api/predict")
     print(f"     POST /api/risk")
     print(f"     GET  /api/model/info")
+    print(f"     … v2: /api/v2/* (ver src/scripts/smoke_api_curls.sh)")
     print("="*50 + "\n")
 
     app.run(debug=True, host='0.0.0.0', port=5001)

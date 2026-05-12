@@ -4,6 +4,8 @@
 ===================================================================
 """
 
+import time
+
 from flask import Blueprint, request, jsonify, current_app
 from datetime import datetime
 import numpy as np
@@ -48,26 +50,43 @@ def register_routes(app):
 
 
 # ==========================================
-# GET /api/health
+# GET|HEAD /api/health
 # ==========================================
-@api_bp.route('/health', methods=['GET'])
+@api_bp.route('/health', methods=['GET', 'HEAD'])
 def health_check():
-    """Health check — verifica que la API y los modelos estén activos."""
+    """Health check — API, modelos y Elasticsearch (v1). HEAD sin cuerpo para probes."""
     loader = current_app.config.get('MODEL_LOADER')
+    es_v1 = current_app.config.get('ES_INDEXER')
+    es_v2 = current_app.config.get('ES_INDEXER_V2')
+    started = current_app.config.get('START_TIME_MONOTONIC')
+    uptime_s = round(time.monotonic() - started, 3) if started is not None else None
 
     status = {
         'status': 'healthy',
         'timestamp': datetime.now().isoformat(),
         'service': 'AirVLC PM2.5 Prediction API',
         'version': '1.0.0',
+        'uptime_seconds': uptime_s,
         'models': {
             'loaded': loader.is_ready if loader else False,
             'best_model': loader.best_model_name if loader else None,
             'available_models': list(loader.models.keys()) if loader else [],
-        }
+        },
+        'elasticsearch': {
+            'predictions_v1': {
+                'connected': bool(es_v1 and getattr(es_v1, 'is_connected', False)),
+                'index': getattr(es_v1, 'index_name', 'airvlc-predictions'),
+            },
+            'predictions_v2': {
+                'connected': bool(es_v2 and getattr(es_v2, 'is_connected', False)),
+                'index': getattr(es_v2, 'index_name', 'airvlc-predictions-v2'),
+            },
+        },
     }
 
     http_code = 200 if (loader and loader.is_ready) else 503
+    if request.method == 'HEAD':
+        return '', http_code
     return jsonify(status), http_code
 
 

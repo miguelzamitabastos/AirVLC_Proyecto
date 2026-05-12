@@ -15,10 +15,45 @@ import json
 # Importación condicional de TensorFlow (puede ser pesado)
 try:
     import tensorflow as tf
-    from tensorflow.keras.models import load_model
     from tensorflow.keras.layers import Layer, Dense
+
+    from src.api._keras_load_compat import load_keras_model_compat
     # Permitir deserialización de capas Lambda (fallback para modelos legacy)
     tf.keras.config.enable_unsafe_deserialization()
+
+    def _configure_tensorflow_runtime():
+        """GPU: memoria no reservada de golpe; CPU forzada vía AIRVLC_TF_CPU_ONLY=1."""
+        if os.environ.get("AIRVLC_TF_CPU_ONLY", "").lower() in ("1", "true", "yes"):
+            try:
+                tf.config.set_visible_devices([], "GPU")
+            except Exception:
+                pass
+        # Evita fallos INTERNAL del autotuner XLA en algunas GPUs/arquitecturas nuevas.
+        try:
+            jit_off = getattr(tf.config.optimizer, "set_jit", None) or getattr(
+                tf.config.optimizer, "set_optimizer_jit", None
+            )
+            if callable(jit_off):
+                jit_off(False)
+        except Exception:
+            pass
+        gpus = tf.config.list_physical_devices("GPU")
+        for g in gpus:
+            try:
+                tf.config.experimental.set_memory_growth(g, True)
+            except Exception:
+                pass
+        if gpus:
+            names = ", ".join(g.name for g in gpus)
+            print(
+                f"  🎮 TensorFlow usará la(s) GPU para inferencia Keras "
+                f"({len(gpus)}): {names}. "
+                f"CPU forzada: AIRVLC_TF_CPU_ONLY=1."
+            )
+        else:
+            print("  💻 TensorFlow: sin GPU visible; inferencia en CPU.")
+
+    _configure_tensorflow_runtime()
 
     # Custom objects (v2 multitarget)
     try:
@@ -45,6 +80,7 @@ try:
 
     TF_AVAILABLE = True
 except ImportError:
+    tf = None  # noqa: F401  — evita NameError en helpers si TF no está instalado
     TF_AVAILABLE = False
     print("⚠️ TensorFlow no disponible. Las predicciones LSTM no funcionarán.")
 
@@ -71,6 +107,8 @@ class ModelLoader:
         self.best_model = None
         self.best_model_name = None
         self.model_info = {}
+        # Clones en CPU por id(model) cuando la GPU falla (XLA/sm_120); se reutilizan.
+        self._cpu_shadow_models = {}
 
         self._scan_and_load()
 
@@ -111,16 +149,18 @@ class ModelLoader:
             try:
                 # v2 model requires BahdanauAttention
                 if name == 'LSTM_Attention_Multi' and BahdanauAttention is not None:
-                    model = load_model(path, custom_objects={'BahdanauAttention': BahdanauAttention})
+                    model = load_keras_model_compat(
+                        path, custom_objects={'BahdanauAttention': BahdanauAttention}
+                    )
                 else:
-                    model = load_model(path)
+                    model = load_keras_model_compat(path)
                 self.models[name] = model
                 if self.best_model is None:
                     self.best_model = model
                     self.best_model_name = name
                 print(f"  ✅ Cargado: {name} ({os.path.basename(path)})")
-            except Exception:
-                print(f"  ⏭️  Omitido: {name} (capas incompatibles con TF local)")
+            except Exception as e:
+                print(f"  ⏭️  Omitido: {name} (error: {str(e)})")
 
         # Cargar ensemble si existe
         ensemble_dir = os.path.join(self.models_dir, 'modelo_08_Colab', 'ensemble_models')
@@ -130,7 +170,7 @@ class ModelLoader:
                 ensemble_models = []
                 for ef in ensemble_files:
                     try:
-                        m = load_model(ef)
+                        m = load_keras_model_compat(ef)
                         ensemble_models.append(m)
                     except Exception:
                         pass  # Silenciar errores individuales del ensemble
@@ -146,8 +186,69 @@ class ModelLoader:
         else:
             print("  ⚠️ No se pudo cargar ningún modelo")
 
+        self._warmup_best_model_if_possible()
+
         # Cargar métricas si existen
         self._load_metrics()
+
+    def _warmup_best_model_if_possible(self):
+        """
+        Una pasada predict() al arranque para que kernels CUDA/PTX se compilen
+        antes del primer request (útil en GPUs muy nuevas, p. ej. sm_120).
+        Desactivar: AIRVLC_TF_INFERENCE_WARMUP=0
+        """
+        if self.best_model is None:
+            return
+        if os.environ.get("AIRVLC_TF_INFERENCE_WARMUP", "1").lower() in ("0", "false", "no"):
+            return
+        spec = self.best_model.input_shape
+        if spec is None or isinstance(spec, list):
+            return
+        rest = tuple(spec[1:])
+        if not rest or any(d is None for d in rest):
+            return
+        try:
+            dummy = np.zeros((1,) + rest, dtype=np.float32)
+            self._predict_with_gpu_cpu_fallback(self.best_model, dummy)
+            print("  🔥 Warmup inferencia en modelo activo (primera predict más rápida).")
+        except Exception:
+            pass
+
+    def _predict_with_gpu_cpu_fallback(self, model, X_arr):
+        """predict en GPU; si falla XLA/CUDA, reutiliza un clon en CPU con los mismos pesos."""
+        if not TF_AVAILABLE or tf is None:
+            raise RuntimeError("TensorFlow no está disponible")
+        X_arr = np.asarray(X_arr, dtype=np.float32)
+        try:
+            return model.predict(X_arr, verbose=0)
+        except Exception as e:
+            msg = str(e).lower()
+            retry_hints = (
+                "internal",
+                "xla",
+                "autotuner",
+                "invalid_argument",
+                "different device",
+                "cuda",
+                "cudnn",
+                "dnn",
+                "gpu",
+                "blas",
+            )
+            if not any(h in msg for h in retry_hints):
+                raise
+            try:
+                mid = id(model)
+                cpu_m = self._cpu_shadow_models.get(mid)
+                if cpu_m is None:
+                    with tf.device("/CPU:0"):
+                        cpu_m = tf.keras.models.clone_model(model)
+                        cpu_m.set_weights(model.get_weights())
+                    self._cpu_shadow_models[mid] = cpu_m
+                with tf.device("/CPU:0"):
+                    return cpu_m.predict(X_arr, verbose=0)
+            except Exception:
+                raise e
 
     def _load_metrics(self):
         """Carga métricas de resultados de los CSVs."""
@@ -184,7 +285,7 @@ class ModelLoader:
         if model is None:
             raise ValueError("No hay modelos cargados")
 
-        return model.predict(X, verbose=0)
+        return self._predict_with_gpu_cpu_fallback(model, X)
 
     def _predict_ensemble(self, X):
         """Predicción promediada del ensemble."""
@@ -192,7 +293,7 @@ class ModelLoader:
         if not ensemble:
             raise ValueError("No hay modelos de ensemble cargados")
 
-        predictions = [m.predict(X, verbose=0) for m in ensemble]
+        predictions = [self._predict_with_gpu_cpu_fallback(m, X) for m in ensemble]
         return np.mean(predictions, axis=0)
 
     def get_info(self):
