@@ -1,4 +1,4 @@
-name: Motor de Calidad del Aire (GVA + ML)
+name: Ingesta Calidad del Aire (GVA + ML)
 
 on:
   schedule:
@@ -22,6 +22,7 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
+          pip install "pymongo[srv]"
 
       - name: 🌍 1. Ingesta de Datos (GVA -> Mongo)
         env:
