@@ -1,0 +1,20 @@
+services:
+  airvlc-ml:
+    image: nvcr.io/nvidia/pytorch:25.04-py3
+    container_name: airvlc-local-gpu
+    ipc: host  # Soluciona el warning de memoria compartida (SHMEM)
+    ports:
+      - "8888:8888"
+    volumes:
+      - ../:/workspace
+    working_dir: /workspace/notebooks
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    command: >
+      bash -c "pip install jupyterlab pandas scikit-learn matplotlib seaborn huggingface_hub &&
+               jupyter lab --ip=0.0.0.0 --port=8888 --no-browser --allow-root --NotebookApp.token='airvlc_local_dev'"
