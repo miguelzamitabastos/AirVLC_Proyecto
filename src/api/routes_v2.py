@@ -35,6 +35,10 @@ V2_STATIONS = [
     "Universidad Politécnica",
 ]
 
+# Datos GVA en Mongo suelen llevar ~3 h de retraso de publicación; hasta 4 h
+# siguen considerándose "tiempo real" para `is_realtime` y el chip verde en cliente.
+MONGO_REALTIME_MAX_AGE_MINUTES = 240
+
 # Métricas estáticas del modelo v2 (transparencia / CSV de logs).
 # Fuente: `models/modelo_11_v2_Multitarget/day11_v2_results.csv`
 V2_MODEL_METRICS = {
@@ -46,6 +50,25 @@ V2_MODEL_METRICS = {
 }
 
 _ROUTES_V2_PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+
+
+def _sync_feature_extractor_from_mongo(
+    feature_extractor: Optional[FeatureExtractorV2],
+    stations: Optional[List[str]] = None,
+) -> None:
+    """Inyecta observaciones recientes de Mongo en el dataset en memoria del extractor."""
+    if feature_extractor is None:
+        return
+    inject = getattr(feature_extractor, "inject_latest_from_mongo", None)
+    if not callable(inject):
+        return
+    try:
+        if stations is None:
+            inject()
+        else:
+            inject(stations=stations)
+    except Exception as e:
+        print(f"⚠️ Mongo → FeatureExtractorV2 sync: {e}")
 
 
 def _append_predictions_log_v2(
@@ -224,6 +247,112 @@ def _get_cached_map_entry(station: str, pollutant: str, horizon_hours: int) -> O
             pass
 
 
+def _iso_z_from_utc(dt: datetime) -> str:
+    """ISO 8601 en UTC con sufijo Z (contrato Flutter)."""
+    return dt.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
+
+
+def _parse_mongo_doc_datetime(doc: Optional[dict]) -> Optional[datetime]:
+    """Interpreta `fecha` (datetime) o `fecha_iso` (str) siempre en UTC."""
+    if not doc:
+        return None
+    fe = doc.get("fecha")
+    if isinstance(fe, datetime):
+        if fe.tzinfo is None:
+            fe = fe.replace(tzinfo=timezone.utc)
+        return fe.astimezone(timezone.utc)
+    fis = doc.get("fecha_iso")
+    if isinstance(fis, str) and fis.strip():
+        s = fis.strip().replace("Z", "+00:00")
+        try:
+            dt = datetime.fromisoformat(s)
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+            return dt.astimezone(timezone.utc)
+        except ValueError:
+            pass
+    return None
+
+
+def _mongo_freshness_payload_from_doc(doc: dict) -> Optional[dict]:
+    """Campos de frescura alineados con Flutter (`data_timestamp`, edad, ids)."""
+    dt = _parse_mongo_doc_datetime(doc)
+    if dt is None:
+        return None
+    now_utc = datetime.now(timezone.utc)
+    age_min = max(0, int((now_utc - dt).total_seconds() // 60))
+    iso_z = _iso_z_from_utc(dt)
+    return {
+        "data_timestamp": iso_z,
+        "data_age_minutes": age_min,
+        "fecha_iso": doc.get("fecha_iso") or iso_z,
+        "station_id": doc.get("station_id"),
+        "updated_minutes_ago": age_min,
+        "is_realtime": age_min < MONGO_REALTIME_MAX_AGE_MINUTES,
+    }
+
+
+def _prefetch_mongo_canonical_freshness_v2() -> Dict[str, dict]:
+    """Último documento canónico por estación v2: `is_canonical_v2`, orden `fecha_iso` desc."""
+    client, coll = _mongo_air_collection()
+    out: Dict[str, dict] = {}
+    if coll is None:
+        return out
+    now_utc = datetime.now(timezone.utc)
+    try:
+        for st in V2_STATIONS:
+            doc = coll.find_one(
+                {"estacion": st, "is_canonical_v2": True},
+                sort=[("fecha_iso", -1)],
+            )
+            print(
+                "[DEBUG mongo freshness]",
+                f"station={st!r}",
+                f"mongo_fecha_iso={doc.get('fecha_iso') if doc else None}",
+                f"parsed_dt={_parse_mongo_doc_datetime(doc)}",
+                f"now_utc={now_utc.isoformat()}",
+            )
+            if not doc:
+                continue
+            fp = _mongo_freshness_payload_from_doc(doc)
+            if fp:
+                out[st] = fp
+        return out
+    finally:
+        try:
+            client.close()
+        except Exception:
+            pass
+
+
+def _mongo_freshness_for_station(station: str) -> dict:
+    """Una estación: último doc canónico (misma query que prefetch)."""
+    client, coll = _mongo_air_collection()
+    if coll is None:
+        return {}
+    now_utc = datetime.now(timezone.utc)
+    try:
+        doc = coll.find_one(
+            {"estacion": station, "is_canonical_v2": True},
+            sort=[("fecha_iso", -1)],
+        )
+        print(
+            "[DEBUG mongo freshness]",
+            f"station={station!r}",
+            f"mongo_fecha_iso={doc.get('fecha_iso') if doc else None}",
+            f"parsed_dt={_parse_mongo_doc_datetime(doc)}",
+            f"now_utc={now_utc.isoformat()}",
+        )
+        if not doc:
+            return {}
+        return _mongo_freshness_payload_from_doc(doc) or {}
+    finally:
+        try:
+            client.close()
+        except Exception:
+            pass
+
+
 def _fetch_observed_from_mongo(station: str, pollutant: str, hours: int = 72) -> tuple[list[dict], dict]:
     """Obtiene los últimos `hours` puntos observados desde Mongo (sin sintéticos
     y excluyendo outliers marcados por el ingest GVA RVVCCA)."""
@@ -234,6 +363,7 @@ def _fetch_observed_from_mongo(station: str, pollutant: str, hours: int = 72) ->
         since = datetime.now(timezone.utc) - timedelta(hours=int(hours))
         q = {
             "estacion": station,
+            "is_canonical_v2": True,
             "fecha": {"$gte": since},
             "is_synthetic": {"$ne": True},
             "$or": [
@@ -242,13 +372,22 @@ def _fetch_observed_from_mongo(station: str, pollutant: str, hours: int = 72) ->
             ],
         }
         proj = {
-            "_id": 0, "fecha": 1, pollutant: 1, "source": 1,
-            "station_id": 1, "is_outlier_any": 1,
+            "_id": 0,
+            "fecha": 1,
+            "fecha_iso": 1,
+            pollutant: 1,
+            "pm25": 1,
+            "no2": 1,
+            "o3": 1,
+            "source": 1,
+            "station_id": 1,
+            "is_outlier_any": 1,
         }
-        cur = coll.find(q, proj).sort("fecha", 1)
+        cur = coll.find(q, proj).sort("fecha_iso", 1)
         obs: list[dict] = []
+        last_doc: Optional[dict] = None
         for doc in cur:
-            ts = doc.get("fecha")
+            ts = _parse_mongo_doc_datetime(doc)
             val = doc.get(pollutant)
             if ts is None or val is None:
                 continue
@@ -260,10 +399,23 @@ def _fetch_observed_from_mongo(station: str, pollutant: str, hours: int = 72) ->
             # interpolará el hueco visualmente; mejor no dibujar el punto a 0).
             if v <= 0:
                 continue
-            if hasattr(ts, "tzinfo") and ts.tzinfo is None:
-                ts = ts.replace(tzinfo=timezone.utc)
-            iso = ts.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
-            obs.append({"timestamp": iso, "value": round(v, 2), "source": doc.get("source")})
+            iso = _iso_z_from_utc(ts)
+            row: dict = {
+                "timestamp": iso,
+                "value": round(v, 2),
+                "source": doc.get("source"),
+                "station_id": doc.get("station_id"),
+                "fecha_iso": doc.get("fecha_iso") or iso,
+            }
+            for pol in ("pm25", "no2", "o3"):
+                if doc.get(pol) is None:
+                    continue
+                try:
+                    row[pol] = round(float(doc[pol]), 2)
+                except (TypeError, ValueError):
+                    pass
+            obs.append(row)
+            last_doc = doc
 
         meta: dict = {}
         if obs:
@@ -271,14 +423,24 @@ def _fetch_observed_from_mongo(station: str, pollutant: str, hours: int = 72) ->
             meta["observed_points"] = len(obs)
             meta["expected_points"] = int(hours)
             meta["coverage_ratio"] = round(len(obs) / float(max(1, int(hours))), 3)
-            # Edad del último dato: para chip verde/amarillo/rojo en Flutter
+            meta["station_id"] = obs[-1].get("station_id")
+            meta["fecha_iso"] = obs[-1].get("fecha_iso")
+            # Edad del último dato: siempre respecto a UTC de servidor
             try:
-                last_dt = datetime.fromisoformat(obs[-1]["timestamp"].replace("Z", "+00:00"))
-                age_min = int((datetime.now(timezone.utc) - last_dt).total_seconds() / 60)
+                last_dt = _parse_mongo_doc_datetime(last_doc) if last_doc else None
+                if last_dt is None:
+                    last_dt = datetime.fromisoformat(obs[-1]["timestamp"].replace("Z", "+00:00"))
+                    if last_dt.tzinfo is None:
+                        last_dt = last_dt.replace(tzinfo=timezone.utc)
+                    last_dt = last_dt.astimezone(timezone.utc)
+                now_utc = datetime.now(timezone.utc)
+                age_min = max(0, int((now_utc - last_dt).total_seconds() // 60))
                 meta["observed_age_minutes"] = age_min
-                if age_min < 120:           # < 2 h
+                meta["updated_minutes_ago"] = age_min
+                meta["is_realtime"] = age_min < MONGO_REALTIME_MAX_AGE_MINUTES
+                if age_min < MONGO_REALTIME_MAX_AGE_MINUTES:  # ≤ 4 h (margen GVA)
                     meta["freshness"] = "fresh"
-                elif age_min < 1440:        # 2-24 h
+                elif age_min < 1440:        # 4 h – 24 h
                     meta["freshness"] = "stale"
                 else:                       # > 24 h
                     meta["freshness"] = "missing"
@@ -434,6 +596,8 @@ def create_api_v2_blueprint(
         except Exception as e:
             print(f"⚠️ Error inicializando ChatbotOrchestratorV2: {e}")
             chatbot = None
+
+    _sync_feature_extractor_from_mongo(feature_extractor, stations=None)
 
     api_v2_bp = Blueprint("api_v2", __name__, url_prefix="/api/v2")
 
@@ -821,6 +985,14 @@ def create_api_v2_blueprint(
             resp["data_age_minutes"] = meta.get("data_age_minutes")
             resp["data_window_start"] = meta.get("data_window_start")
 
+        # Frescura observada alineada con Mongo (misma fuente que `/map` / timeseries).
+        mongo_live = _mongo_freshness_for_station(real_station)
+        if mongo_live:
+            dws = resp.get("data_window_start")
+            resp.update(mongo_live)
+            if dws:
+                resp["data_window_start"] = dws
+
         return jsonify(resp), 200
 
     @api_v2_bp.route("/route", methods=["POST"])
@@ -925,6 +1097,7 @@ def create_api_v2_blueprint(
 
         try:
             feature_extractor.reload()
+            _sync_feature_extractor_from_mongo(feature_extractor, stations=None)
             return jsonify({
                 "success": True,
                 "message": "Dataset v2 recargado en memoria.",
@@ -952,6 +1125,7 @@ def create_api_v2_blueprint(
 
             append_result = append_to_dataset_v2()
             feature_extractor.reload()
+            _sync_feature_extractor_from_mongo(feature_extractor, stations=None)
             return jsonify({
                 "success": True,
                 "append": append_result,
@@ -988,6 +1162,11 @@ def create_api_v2_blueprint(
         # Validar horizonte
         if horizon not in (0, 24, 48, 72):
             horizon = 0
+
+        # Frescura desde Mongo (canónico v2, último fecha_iso); el CSV en memoria suele ir atrasado.
+        mongo_fresh_by_station: Dict[str, dict] = {}
+        if horizon == 0:
+            mongo_fresh_by_station = _prefetch_mongo_canonical_freshness_v2()
 
         stations_out = []
         for st in V2_STATIONS:
@@ -1060,7 +1239,21 @@ def create_api_v2_blueprint(
 
                 real_station, preds, risk_payload, meta = _infer_for_station(st, offset_hours=0)
                 pol_info = risk_payload["pollutants"].get(pollutant, {})
-                stations_out.append({
+                station_meta = {
+                    "model_used": "LSTM_Attention_Multi",
+                    "data_timestamp": meta.get("data_timestamp") if meta else None,
+                    "data_age_minutes": meta.get("data_age_minutes") if meta else None,
+                    "data_window_start": meta.get("data_window_start") if meta else None,
+                    "horizon_hours": horizon,
+                    "available": True,
+                }
+                mf = mongo_fresh_by_station.get(real_station)
+                if mf:
+                    dws = station_meta.get("data_window_start")
+                    station_meta.update(mf)
+                    if dws:
+                        station_meta["data_window_start"] = dws
+                row_out = {
                     "station": real_station,
                     "location": STATION_COORDS.get(real_station),
                     "value": round(preds.get(pollutant, 0), 2),
@@ -1074,14 +1267,16 @@ def create_api_v2_blueprint(
                         "unit": "µg/m³",
                     },
                     "worst": risk_payload["worst"],
-                    "meta": {
-                        "model_used": "LSTM_Attention_Multi",
-                        "data_timestamp": meta.get("data_timestamp") if meta else None,
-                        "data_age_minutes": meta.get("data_age_minutes") if meta else None,
-                        "horizon_hours": horizon,
-                        "available": True,
-                    },
-                })
+                    "meta": station_meta,
+                }
+                if mf:
+                    sid = mf.get("station_id")
+                    fi = mf.get("fecha_iso")
+                    if sid is not None:
+                        row_out["station_id"] = sid
+                    if fi:
+                        row_out["fecha_iso"] = fi
+                stations_out.append(row_out)
             except Exception as e:
                 stations_out.append({
                     "station": st,
@@ -1125,8 +1320,13 @@ def create_api_v2_blueprint(
 
         resolved = _resolve_station(station_raw) or station_raw
 
+        _sync_feature_extractor_from_mongo(feature_extractor, stations=[resolved])
+
         # ---- observed data (fuente de verdad: Mongo) ----
         observed, obs_meta = _fetch_observed_from_mongo(resolved, pollutant, hours=window_hours)
+        mongo_live = _mongo_freshness_for_station(resolved)
+        if mongo_live:
+            obs_meta = {**(obs_meta or {}), **mongo_live}
 
         # ---- forecast (predicciones reales del modelo LSTM) ----
         forecast = []
@@ -1180,15 +1380,18 @@ def create_api_v2_blueprint(
                     "available": False,
                 })
 
+        merged_meta = dict(obs_meta or {})
         return jsonify({
             "success": True,
             "station": resolved,
+            "station_id": merged_meta.get("station_id"),
+            "fecha_iso": merged_meta.get("fecha_iso"),
             "pollutant": pollutant,
             "window_hours": window_hours,
             "observed": observed,
             "forecast": forecast,
             "meta": {
-                **(obs_meta or {}),
+                **merged_meta,
                 "window_hours": window_hours,
                 "observed_source": "mongo",
             },

@@ -36,6 +36,9 @@ def _make_fake_feature_extractor():
         def reload(self):
             pass
 
+        def inject_latest_from_mongo(self, stations=None):
+            return {"updated": [], "skipped": [], "errors": []}
+
     return FakeExtractor()
 
 

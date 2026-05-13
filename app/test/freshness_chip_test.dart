@@ -104,5 +104,35 @@ void main() {
 
       expect(find.byType(CircularProgressIndicator), findsOneWidget);
     });
+
+    testWidgets('prioriza is_realtime true: texto tiempo real (API v2 Mongo)',
+        (tester) async {
+      final pred = Prediction(
+        pm25: 10,
+        no2: 20,
+        o3: 30,
+        isRealtime: true,
+      );
+
+      await tester.pumpWidget(buildChip(pred));
+      await tester.pump();
+
+      expect(find.textContaining('tiempo real'), findsOneWidget);
+    });
+
+    testWidgets('prioriza is_realtime false: texto fuera de ventana tiempo real',
+        (tester) async {
+      final pred = Prediction(
+        pm25: 10,
+        no2: 20,
+        o3: 30,
+        isRealtime: false,
+      );
+
+      await tester.pumpWidget(buildChip(pred));
+      await tester.pump();
+
+      expect(find.textContaining('fuera de ventana'), findsOneWidget);
+    });
   });
 }
