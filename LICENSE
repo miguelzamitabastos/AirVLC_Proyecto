@@ -18,3 +18,20 @@ FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
 AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR OTHER DEALINGS IN THE SOFTWARE.
+
+---
+
+Data License
+
+The datasets ingested and processed by this software are obtained from third-
+party open data portals (Ajuntament de València and Generalitat Valenciana)
+and retain their original licenses. The historical dataset of air quality
+measurements from the Portal de Dades Obertes de l'Ajuntament de València
+is distributed under Creative Commons Attribution 4.0 International (CC-BY-4.0).
+
+When redistributing data derived from these sources, please maintain
+attribution to the original data providers:
+
+- Red de Vigilancia y Control de Contaminación Atmosférica (RVVCCA)
+- Ajuntament de València — Portal de Dades Obertes
+- Generalitat Valenciana — Conselleria de Medi Ambient

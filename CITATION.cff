@@ -1,0 +1,49 @@
+cff-version: 1.2.0
+message: "If you use this software or its derived results, please cite it as below."
+type: software
+title: "AirVLC: Sistema Inteligente de Monitorización y Predicción de la Calidad del Aire en València"
+abstract: >-
+  AirVLC is an end-to-end platform for monitoring, predicting and alerting on
+  air quality in the city of València. It ingests hourly data from the ten
+  stations of the Red de Vigilancia y Control de Contaminación Atmosférica
+  (RVVCCA), trains deep learning models to forecast PM2.5, NO2 and O3 levels
+  24 hours ahead, and exposes results through a REST API, interactive Kibana
+  dashboards and a cross-platform mobile application built with Flutter. The
+  system incorporates natural language processing services (NLU, TTS, ASR) on
+  AWS to enable voice interaction, and is deployed as microservices
+  orchestrated with Docker Compose. The project uses open data from the
+  Portal de Dades Obertes de l'Ajuntament de València as its primary source
+  and was developed in the context of the Premis Dades Obertes 2026 of the
+  Ajuntament de València.
+authors:
+  - family-names: "Zamit Monsalve"
+    given-names: "Miguel"
+    affiliation: "IES Abastos — Máster en Inteligencia Artificial y Big Data"
+repository-code: "https://github.com/miguelzamitabastos/AirVLC_Proyecto"
+url: "https://github.com/miguelzamitabastos/AirVLC_Proyecto"
+keywords:
+  - air-quality
+  - valencia
+  - open-data
+  - deep-learning
+  - lstm
+  - attention-mechanism
+  - time-series-forecasting
+  - smart-city
+  - public-health
+  - rvvcca
+license: MIT
+version: "3.0.0"
+date-released: "2026-05-28"
+references:
+  - type: data
+    title: "Dades horàries de qualitat de l'aire des de 2016"
+    authors:
+      - name: "Ajuntament de València"
+    url: "https://opendata.vlci.valencia.es/dataset/hourly-air-quality-data-since-2016"
+    license: "CC-BY-4.0"
+  - type: data
+    title: "Red de Vigilancia y Control de Contaminación Atmosférica (RVVCCA)"
+    authors:
+      - name: "Generalitat Valenciana"
+    url: "https://www.gva.es/es/inicio/area_de_prensa/not_detalle_area_prensa?id=839837"
