@@ -66,3 +66,30 @@ ehthumbs.db
 *.mp3
 *.wav
 
+# Test files
+test_data/
+test_results/
+test_logs/
+test_reports/
+test_screenshots/
+test_videos/
+test_audio/
+test_documents/
+test_code/
+test_configs/
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
+dist-info/
+*.egg-info/
+__pycache__/
+*.pyc
+*.pyo
+
+# Flutter test files
+app/coverage/
+app/.dart_tool/
+app/.flutter-plugins
+app/.packages

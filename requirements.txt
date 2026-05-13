@@ -1,7 +1,9 @@
 # Data Analysis & Preprocessing
 pandas>=2.0.0
 numpy>=1.24.0
-scikit-learn>=1.8.0
+# 1.8+ requires Python >=3.11; keep a 3.10-compatible upper bound for older runtimes
+scikit-learn>=1.8.0; python_version >= "3.11"
+scikit-learn>=1.3.0,<1.8.0; python_version < "3.11"
 
 # Jupyter / EDA
 jupyterlab>=4.0.0
@@ -30,7 +32,11 @@ elasticsearch>=8.10.0,<9.0.0
 flask>=3.0.0
 gunicorn>=21.2.0
 python-dotenv>=1.0.0
+
+# Testing (pythonpath y testpaths en ini de raíz)
 pytest>=8.0.0
+pytest-cov>=4.0.0
+pytest-xdist>=3.0.0
 
 # AWS (Boto3 para Polly/Transcribe)
 boto3>=1.28.0

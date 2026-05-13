@@ -1,0 +1,49 @@
+---
+name: Tests Flutter (App)
+
+"on":
+  push:
+    branches:
+      - main
+      - develop
+    paths:
+      - 'app/**'
+      - '.github/workflows/flutter-tests.yml'
+  pull_request:
+    branches:
+      - main
+      - develop
+    paths:
+      - 'app/**'
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 📥 Clonar repositorio
+        uses: actions/checkout@v4
+
+      - name: 🐦 Instalar Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.22.0'  # Ajusta a tu versión exacta
+          channel: 'stable'
+
+      - name: 📦 Obtener dependencias Flutter
+        working-directory: app
+        run: flutter pub get
+
+      - name: 🧪 Ejecutar tests Flutter
+        working-directory: app
+        run: flutter test --coverage
+
+      - name: 📊 Subir coverage a Codecov
+        uses: codecov/codecov-action@v3
+        with:
+          files: ./app/coverage/lcov.info
+          flags: flutter
+          name: codecov-flutter
+          fail_ci_if_error: false
+          verbose: true

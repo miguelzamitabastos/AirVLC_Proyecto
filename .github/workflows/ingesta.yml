@@ -1,9 +1,10 @@
+---
 name: Ingesta Calidad del Aire (GVA + ML)
 
-on:
+"on":
   schedule:
-    - cron: '0 * * * *' # Se ejecuta en el minuto 0 de cada hora
-  workflow_dispatch: 
+    - cron: '0 * * * *'  # Se ejecuta en el minuto 0 de cada hora
+  workflow_dispatch:
 
 jobs:
   actualizar_predicciones:
