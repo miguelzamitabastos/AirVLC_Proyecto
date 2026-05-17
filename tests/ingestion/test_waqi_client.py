@@ -79,8 +79,11 @@ def test_parse_time_from_waqi_example_payload():
     assert dt.year == 2026 and dt.month == 5 and dt.day == 17
 
 
-def test_fetch_waqi_for_stations_rejects_non_fallback():
+@patch("src.ingestion.waqi_air_quality_client.fetch_station_payload", return_value=None)
+def test_fetch_waqi_for_stations_rejects_non_fallback(mock_fetch):
+    """Solo estaciones en WAQI_FALLBACK_STATIONS; no requiere WAQI_TOKEN ni red."""
     import src.ingestion.waqi_air_quality_client as mod
 
     out = mod.fetch_waqi_for_stations(["Francia", "Puerto Valencia"], hours=24)
     assert out.get("stations") == ["Puerto Valencia"]
+    mock_fetch.assert_called_once_with("Puerto Valencia")
