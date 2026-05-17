@@ -22,6 +22,7 @@ from src.api.schemas import format_error_response
 from src.ml.risk_classifier_v2 import RiskClassifierV2
 from src.services.chatbot_orchestrator_v2 import ChatbotOrchestratorV2
 from src.services.profile_advisor import build_recommendation
+from src.ingestion.waqi_station_map import WAQI_FALLBACK_STATIONS
 
 
 # Estaciones del v2 (coinciden con las del CSV master_dataset_colab_v2.csv)
@@ -282,14 +283,99 @@ def _mongo_freshness_payload_from_doc(doc: dict) -> Optional[dict]:
     now_utc = datetime.now(timezone.utc)
     age_min = max(0, int((now_utc - dt).total_seconds() // 60))
     iso_z = _iso_z_from_utc(dt)
-    return {
+    payload: dict = {
         "data_timestamp": iso_z,
         "data_age_minutes": age_min,
         "fecha_iso": doc.get("fecha_iso") or iso_z,
         "station_id": doc.get("station_id"),
         "updated_minutes_ago": age_min,
         "is_realtime": age_min < MONGO_REALTIME_MAX_AGE_MINUTES,
+        "mongo_source": doc.get("source"),
     }
+    if doc.get("source") == "waqi":
+        payload["air_source"] = "waqi"
+        payload["data_source_label"] = (
+            doc.get("waqi_proxy_label")
+            or "WAQI (fallback — no en red GVA)"
+        )
+        if doc.get("waqi_city_name"):
+            payload["waqi_city_name"] = doc.get("waqi_city_name")
+        if doc.get("waqi_proxy_label"):
+            payload["waqi_proxy_label"] = doc.get("waqi_proxy_label")
+    elif doc.get("source") == "gva_spatial_proxy":
+        payload["air_source"] = "gva_proxy"
+        payload["data_source_label"] = (
+            doc.get("data_source_label")
+            or f"GVA proxy desde {doc.get('gva_proxy_from', '?')}"
+        )
+        payload["gva_proxy_from"] = doc.get("gva_proxy_from")
+    elif doc.get("source") == "gva_rvvcca_csv":
+        payload["air_source"] = "gva"
+        payload["data_source_label"] = "GVA RVVCCA"
+    return payload
+
+
+def _latest_canonical_mongo_doc(station: str) -> Optional[dict]:
+    client, coll = _mongo_air_collection()
+    if coll is None:
+        return None
+    try:
+        return coll.find_one(
+            {"estacion": station, "is_canonical_v2": True},
+            sort=[("fecha_iso", -1)],
+        )
+    finally:
+        try:
+            client.close()
+        except Exception:
+            pass
+
+
+def _refresh_waqi_fallback_if_stale(
+    station: str,
+    *,
+    max_age_minutes: int = MONGO_REALTIME_MAX_AGE_MINUTES,
+) -> Optional[dict]:
+    """Puerto Valencia: consulta WAQI en vivo si no hay doc reciente en Mongo."""
+    if station not in WAQI_FALLBACK_STATIONS:
+        return None
+
+    existing = _latest_canonical_mongo_doc(station)
+    if existing:
+        dt = _parse_mongo_doc_datetime(existing)
+        if dt is not None:
+            age_min = max(
+                0,
+                int((datetime.now(timezone.utc) - dt).total_seconds() // 60),
+            )
+            if age_min < max_age_minutes and existing.get("source") in (
+                "waqi",
+                "gva_spatial_proxy",
+            ):
+                return existing
+
+    if not os.getenv("WAQI_TOKEN", "").strip():
+        return existing
+
+    try:
+        from src.ingestion.waqi_air_quality_client import (
+            build_document,
+            fetch_station_payload,
+            upsert_to_mongo,
+        )
+
+        data = fetch_station_payload(station)
+        if not data:
+            return existing
+        doc = build_document(station, data, hours=6)
+        if not doc:
+            return existing
+        upsert_to_mongo([doc])
+        print(f"✅ WAQI live refresh → Mongo [{station}] {doc.get('fecha_iso')}")
+        return doc
+    except Exception as e:
+        print(f"⚠️ WAQI live refresh falló [{station}]: {e}")
+        return existing
 
 
 def _prefetch_mongo_canonical_freshness_v2() -> Dict[str, dict]:
@@ -356,6 +442,9 @@ def _mongo_freshness_for_station(station: str) -> dict:
 def _fetch_observed_from_mongo(station: str, pollutant: str, hours: int = 72) -> tuple[list[dict], dict]:
     """Obtiene los últimos `hours` puntos observados desde Mongo (sin sintéticos
     y excluyendo outliers marcados por el ingest GVA RVVCCA)."""
+    if station in WAQI_FALLBACK_STATIONS:
+        _refresh_waqi_fallback_if_stale(station)
+
     client, coll = _mongo_air_collection()
     if coll is None:
         return [], {"error": "Mongo no configurado"}
@@ -449,12 +538,93 @@ def _fetch_observed_from_mongo(station: str, pollutant: str, hours: int = 72) ->
         else:
             meta["freshness"] = "missing"
             meta["observed_points"] = 0
+
+        latest = _latest_canonical_mongo_doc(station)
+        if latest and latest.get("source") == "waqi":
+            meta["air_source"] = "waqi"
+            meta["data_source_label"] = (
+                latest.get("waqi_proxy_label") or "WAQI (fallback — no en red GVA)"
+            )
+            meta["observed_source"] = "waqi"
+            if latest.get("waqi_city_name"):
+                meta["waqi_city_name"] = latest.get("waqi_city_name")
+            if latest.get("waqi_proxy_label"):
+                meta["waqi_proxy_label"] = latest.get("waqi_proxy_label")
+        elif latest and latest.get("source") == "gva_spatial_proxy":
+            meta["air_source"] = "gva_proxy"
+            meta["data_source_label"] = latest.get("data_source_label")
+            meta["gva_proxy_from"] = latest.get("gva_proxy_from")
+            meta["observed_source"] = "gva_proxy"
+        elif obs:
+            meta["observed_source"] = "mongo"
         return obs, meta
     finally:
         try:
             client.close()
         except Exception:
             pass
+
+
+def _fetch_latest_observed_values(station: str) -> Optional[Dict[str, float]]:
+    """Devuelve los últimos valores reales observados {pm25, no2, o3} desde Mongo,
+    o None si no hay doc reciente."""
+    if station in WAQI_FALLBACK_STATIONS:
+        _refresh_waqi_fallback_if_stale(station)
+
+    client, coll = _mongo_air_collection()
+    if coll is None:
+        return None
+    try:
+        doc = coll.find_one(
+            {"estacion": station, "is_canonical_v2": True},
+            sort=[("fecha_iso", -1)],
+        )
+        if not doc:
+            return None
+        # Solo aceptar docs con is_realtime (< 4 h)
+        dt = _parse_mongo_doc_datetime(doc)
+        if dt is None:
+            return None
+        now_utc = datetime.now(timezone.utc)
+        age_min = max(0, int((now_utc - dt).total_seconds() // 60))
+        if age_min > MONGO_REALTIME_MAX_AGE_MINUTES:
+            return None  # Datos demasiado antiguos; usar predicción del modelo
+        out: Dict[str, float] = {}
+        for pol in ("pm25", "no2", "o3"):
+            v = doc.get(pol)
+            if v is not None:
+                try:
+                    fv = float(v)
+                    if fv > 0:
+                        out[pol] = round(fv, 2)
+                except (TypeError, ValueError):
+                    pass
+        return out if out else None
+    except Exception as e:
+        print(f"⚠️ Error leyendo observados de Mongo para {station!r}: {e}")
+        return None
+    finally:
+        try:
+            client.close()
+        except Exception:
+            pass
+
+
+def _classify_observed_value(pollutant: str, value: float) -> Tuple[str, str]:
+    """Clasifica un valor observado real en (level, color) usando los umbrales del ICA."""
+    from src.ml.risk_classifier_v2 import POLLUTANT_THRESHOLDS
+    from src.ml.risk_classifier import RISK_LEVELS
+    thr = POLLUTANT_THRESHOLDS.get(pollutant, POLLUTANT_THRESHOLDS["pm25"])
+    if value <= thr["bueno"]:
+        level = "bueno"
+    elif value <= thr["moderado"]:
+        level = "moderado"
+    elif value <= thr["malo"]:
+        level = "malo"
+    else:
+        level = "peligroso"
+    color = RISK_LEVELS[level]["color"]
+    return level, color
 
 
 def _haversine_km(a: Dict[str, float], b: Dict[str, float]) -> float:
@@ -873,6 +1043,36 @@ def create_api_v2_blueprint(
         y_scaled = loader.predict(features, model_name=model_name)
         preds = feature_extractor.inverse_transform_predictions(y_scaled)
 
+        # SPRINT 8 FIX: Si es el momento "Ahora" (offset_hours=0), la fuente de la
+        # verdad es el sensor real, no la predicción del modelo LSTM.
+        if int(offset_hours or 0) == 0 and real_station:
+            obs = _fetch_latest_observed_values(real_station)
+            if obs:
+                for pol in ("pm25", "no2", "o3"):
+                    if pol in obs:
+                        preds[pol] = obs[pol]
+                latest = _latest_canonical_mongo_doc(real_station)
+                if latest and latest.get("source") == "waqi":
+                    meta["source"] = "waqi"
+                    meta["air_source"] = "waqi"
+                    meta["data_source_label"] = latest.get(
+                        "data_source_label", "WAQI (fallback — no en red GVA)"
+                    )
+                elif latest and latest.get("source") == "gva_spatial_proxy":
+                    meta["source"] = "gva_proxy"
+                    meta["air_source"] = "gva_proxy"
+                    meta["data_source_label"] = latest.get("data_source_label")
+                    meta["gva_proxy_from"] = latest.get("gva_proxy_from")
+                else:
+                    meta["source"] = "mongo_observed"
+                if latest:
+                    fp = _mongo_freshness_payload_from_doc(latest)
+                    if fp:
+                        meta.update(fp)
+                        meta.pop("data_window_start", None)
+            else:
+                meta["source"] = "model"
+
         risk_payload = risk_classifier.classify_multi(
             pm25=preds["pm25"], no2=preds["no2"], o3=preds["o3"], station=real_station,
         )
@@ -905,6 +1105,37 @@ def create_api_v2_blueprint(
         )
         y_scaled = loader.predict(features, model_name=model_name)
         preds = feature_extractor.inverse_transform_predictions(y_scaled)
+
+        # SPRINT 8 FIX: Si es el momento "Ahora" (horizon_hours=0), la fuente de la
+        # verdad es el sensor real, no la predicción del modelo LSTM.
+        if int(horizon_hours or 0) == 0 and real_station:
+            obs = _fetch_latest_observed_values(real_station)
+            if obs:
+                for pol in ("pm25", "no2", "o3"):
+                    if pol in obs:
+                        preds[pol] = obs[pol]
+                latest = _latest_canonical_mongo_doc(real_station)
+                if latest and latest.get("source") == "waqi":
+                    meta["source"] = "waqi"
+                    meta["air_source"] = "waqi"
+                    meta["data_source_label"] = latest.get(
+                        "data_source_label", "WAQI (fallback — no en red GVA)"
+                    )
+                elif latest and latest.get("source") == "gva_spatial_proxy":
+                    meta["source"] = "gva_proxy"
+                    meta["air_source"] = "gva_proxy"
+                    meta["data_source_label"] = latest.get("data_source_label")
+                    meta["gva_proxy_from"] = latest.get("gva_proxy_from")
+                else:
+                    meta["source"] = "mongo_observed"
+                if latest:
+                    fp = _mongo_freshness_payload_from_doc(latest)
+                    if fp:
+                        meta.update(fp)
+                        meta.pop("data_window_start", None)
+            else:
+                meta["source"] = "model"
+
         risk_payload = risk_classifier.classify_multi(
             pm25=preds["pm25"], no2=preds["no2"], o3=preds["o3"], station=real_station,
         )
@@ -1166,6 +1397,8 @@ def create_api_v2_blueprint(
         # Frescura desde Mongo (canónico v2, último fecha_iso); el CSV en memoria suele ir atrasado.
         mongo_fresh_by_station: Dict[str, dict] = {}
         if horizon == 0:
+            for st in WAQI_FALLBACK_STATIONS:
+                _refresh_waqi_fallback_if_stale(st)
             mongo_fresh_by_station = _prefetch_mongo_canonical_freshness_v2()
 
         stations_out = []
@@ -1253,20 +1486,45 @@ def create_api_v2_blueprint(
                     station_meta.update(mf)
                     if dws:
                         station_meta["data_window_start"] = dws
+
+                # Ya no es necesario recalcular valores aquí porque `_infer_for_station`
+                # centraliza la lógica de priorizar Mongo para offset_hours=0.
+                display_value = round(preds.get(pollutant, 0), 2)
+                display_level = pol_info.get("level", "bueno")
+                display_color = pol_info.get("color", "#2BB673")
+                display_all_preds = {
+                    "pm25": round(preds["pm25"], 2),
+                    "no2": round(preds["no2"], 2),
+                    "o3": round(preds["o3"], 2),
+                    "unit": "µg/m³",
+                }
+                display_worst = risk_payload["worst"]
+
+                if horizon == 0:
+                    if meta.get("source") == "waqi":
+                        station_meta["source"] = "waqi"
+                        station_meta["air_source"] = "waqi"
+                        station_meta["data_source_label"] = meta.get(
+                            "data_source_label",
+                            "WAQI (fallback — no en red GVA)",
+                        )
+                    elif meta.get("source") == "gva_proxy":
+                        station_meta["source"] = "gva_proxy"
+                        station_meta["air_source"] = "gva_proxy"
+                        station_meta["data_source_label"] = meta.get("data_source_label")
+                        station_meta["gva_proxy_from"] = meta.get("gva_proxy_from")
+                    elif meta.get("source") == "mongo_observed":
+                        station_meta["source"] = "mongo_observed"
+
                 row_out = {
                     "station": real_station,
                     "location": STATION_COORDS.get(real_station),
-                    "value": round(preds.get(pollutant, 0), 2),
-                    "level": pol_info.get("level", "bueno"),
-                    "color": pol_info.get("color", "#2BB673"),
+                    "value": display_value,
+                    "level": display_level,
+                    "color": display_color,
                     "emoji": pol_info.get("emoji", ""),
-                    "all_predictions": {
-                        "pm25": round(preds["pm25"], 2),
-                        "no2": round(preds["no2"], 2),
-                        "o3": round(preds["o3"], 2),
-                        "unit": "µg/m³",
-                    },
-                    "worst": risk_payload["worst"],
+                    "all_predictions": display_all_preds,
+                    "worst": display_worst,
                     "meta": station_meta,
                 }
                 if mf:
@@ -1357,18 +1615,34 @@ def create_api_v2_blueprint(
                     except Exception:
                         pass  # caer al caso genérico
 
-                # h=0: inferencia normal con ventana más reciente
-                real_station, preds, risk_payload, meta = _infer_for_station(
-                    resolved, offset_hours=0
-                )
-                pol_info = risk_payload["pollutants"].get(pollutant, {})
+                # h=0: usar el último valor observado real de Mongo (consistente con /map)
+                # Si no hay observados, caer al modelo como fallback.
+                now_value = None
+                now_level = None
+                now_color = None
+                if observed:
+                    last_obs = observed[-1]
+                    obs_v = last_obs.get("value")
+                    if obs_v is not None:
+                        now_value = round(float(obs_v), 2)
+                        now_level, now_color = _classify_observed_value(pollutant, now_value)
+                if now_value is None:
+                    # Fallback al modelo
+                    real_station, preds, risk_payload, meta = _infer_for_station(
+                        resolved, offset_hours=0
+                    )
+                    pol_info = risk_payload["pollutants"].get(pollutant, {})
+                    now_value = round(preds.get(pollutant, 0), 2)
+                    now_level = pol_info.get("level", "bueno")
+                    now_color = pol_info.get("color", "#2BB673")
                 forecast.append({
                     "horizon_hours": h,
                     "label": "Ahora" if h == 0 else f"+{h}h",
-                    "value": round(preds.get(pollutant, 0), 2),
-                    "level": pol_info.get("level", "bueno"),
-                    "color": pol_info.get("color", "#2BB673"),
+                    "value": now_value,
+                    "level": now_level,
+                    "color": now_color,
                     "available": True,
+                    "source": "mongo_observed" if observed else "model",
                 })
             except Exception:
                 forecast.append({
@@ -1381,6 +1655,7 @@ def create_api_v2_blueprint(
                 })
 
         merged_meta = dict(obs_meta or {})
+        obs_src = merged_meta.get("observed_source") or "mongo"
         return jsonify({
             "success": True,
             "station": resolved,
@@ -1393,7 +1668,7 @@ def create_api_v2_blueprint(
             "meta": {
                 **merged_meta,
                 "window_hours": window_hours,
-                "observed_source": "mongo",
+                "observed_source": obs_src,
             },
             "server_timestamp": datetime.now().isoformat(),
         }), 200

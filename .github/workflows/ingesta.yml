@@ -25,12 +25,18 @@ jobs:
           pip install -r requirements.txt
           pip install "pymongo[srv]"
 
-      - name: 🌍 1. Ingesta de Datos (GVA -> Mongo)
+      # Paso 1: 6 estaciones canónicas vía GVA RVVCCA + Puerto Valencia vía WAQI
+      # (supplement_missing_canonical_from_waqi dentro de gva_rvvcca_csv_client).
+      # Requiere secrets: MONGO_URI y WAQI_TOKEN.
+      - name: 🌍 1. Ingesta de Datos (GVA + WAQI fallback -> Mongo)
         env:
           MONGO_URI: ${{ secrets.MONGO_URI }}
+          WAQI_TOKEN: ${{ secrets.WAQI_TOKEN }}
         run: python -m src.ingestion.gva_rvvcca_csv_client
 
+      # Paso 2: predicciones; inject_latest_from_mongo usa el doc WAQI de Puerto Valencia.
       - name: 🧠 2. Predicción ML (Mongo -> Mongo)
         env:
           MONGO_URI: ${{ secrets.MONGO_URI }}
+          WAQI_TOKEN: ${{ secrets.WAQI_TOKEN }}
         run: python -m src.scripts.predict_and_save

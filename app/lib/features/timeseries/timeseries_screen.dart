@@ -97,6 +97,8 @@ class _TimeseriesScreenState extends State<TimeseriesScreen> {
                     const SizedBox(height: 12),
                     _buildTransparencyBadge(),
                     const SizedBox(height: 12),
+                    _buildSourceBanner(),
+                    const SizedBox(height: 8),
                     _buildChart(),
                     const SizedBox(height: 16),
                     _buildForecastCards(),
@@ -185,6 +187,54 @@ class _TimeseriesScreenState extends State<TimeseriesScreen> {
     );
   }
 
+  bool get _isWaqiSource {
+    final src = _meta['air_source']?.toString() ?? _meta['observed_source']?.toString();
+    return src == 'waqi';
+  }
+
+  bool get _isGvaProxySource {
+    final src = _meta['air_source']?.toString() ?? _meta['observed_source']?.toString();
+    return src == 'gva_proxy';
+  }
+
+  Widget _buildSourceBanner() {
+    if (!_isWaqiSource && !_isGvaProxySource) return const SizedBox.shrink();
+    final proxy = _meta['waqi_proxy_label']?.toString() ??
+        _meta['data_source_label']?.toString();
+    final city = _meta['waqi_city_name']?.toString();
+    return Container(
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        color: const Color(0xFFE3F2FD),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: AirVLCTheme.primaryBlue.withOpacity(0.35)),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(
+            _isGvaProxySource ? Icons.link : Icons.cloud,
+            size: 18,
+            color: AirVLCTheme.primaryBlue,
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              _isGvaProxySource
+                  ? 'Observados vía proxy GVA (Puerto Moll, ~300 m). Puerto Valencia no tiene sensor en red GVA.\n${proxy ?? ''}'
+                  : (proxy != null && proxy.isNotEmpty
+                      ? 'Observados vía WAQI (proxy). Puerto Valencia no está en red GVA.\n$proxy'
+                      : (city != null && city.isNotEmpty
+                          ? 'Observados vía WAQI. Sensor: $city'
+                          : 'Observados vía WAQI (fallback). Puerto Valencia no está en red GVA.')),
+              style: TextStyle(fontSize: 12, color: Colors.blue.shade900),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildTransparencyBadge() {
     final msg = 'Las predicciones muestran tendencia estimada (R²≈0.86). '
             'La precisión disminuye a mayor horizonte temporal.';
@@ -212,10 +262,24 @@ class _TimeseriesScreenState extends State<TimeseriesScreen> {
 
   Widget _buildChart() {
     if (_observed.isEmpty) {
-      return const Card(
+      return Card(
         child: Padding(
-          padding: EdgeInsets.all(24),
-          child: Center(child: Text('Sin datos observados disponibles.')),
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(Icons.timeline, size: 40, color: Colors.grey),
+              const SizedBox(height: 12),
+              Text(
+                _isWaqiSource
+                    ? 'Aún no hay histórico WAQI en las últimas $_windowHours h.\n'
+                        'Desliza hacia abajo para refrescar; cada hora de ingesta añadirá un punto.'
+                    : 'Sin datos observados disponibles.',
+                textAlign: TextAlign.center,
+                style: const TextStyle(color: Colors.grey),
+              ),
+            ],
+          ),
         ),
       );
     }
@@ -375,10 +439,18 @@ class _TimeseriesScreenState extends State<TimeseriesScreen> {
                     if (observedSpotsRel.isNotEmpty)
                       LineChartBarData(
                         spots: observedSpotsRel,
-                        isCurved: true,
+                        isCurved: observedSpotsRel.length > 2,
                         color: AirVLCTheme.primaryBlue,
                         barWidth: 2.5,
-                        dotData: const FlDotData(show: false),
+                        dotData: FlDotData(
+                          show: observedSpotsRel.length <= 3,
+                          getDotPainter: (_, __, ___, ____) => FlDotCirclePainter(
+                            radius: 5,
+                            color: AirVLCTheme.primaryBlue,
+                            strokeWidth: 2,
+                            strokeColor: Colors.white,
+                          ),
+                        ),
                         belowBarData: BarAreaData(
                           show: true,
                           color: AirVLCTheme.primaryBlue.withOpacity(0.08),
@@ -504,6 +576,7 @@ class _TimeseriesScreenState extends State<TimeseriesScreen> {
     final coverage = (_meta['coverage_ratio'] as num?)?.toDouble();
     final freshness = _meta['freshness']?.toString();
     final isRt = _meta['is_realtime'];
+    final isWaqi = _isWaqiSource;
 
     Color chipColor;
     IconData chipIcon;
@@ -584,6 +657,14 @@ class _TimeseriesScreenState extends State<TimeseriesScreen> {
                 'Último dato: $lastTs'
                 '${ageMin != null ? '  (hace ${_humanizeMinutes(ageMin)})' : ''}',
                 style: const TextStyle(fontSize: 11, color: Colors.grey),
+              ),
+            ],
+            if (isWaqi) ...[
+              const SizedBox(height: 6),
+              Text(
+                'ℹ️ Histórico limitado: WAQI aporta el último punto en vivo; '
+                'la serie se irá rellenando con la ingesta horaria.',
+                style: TextStyle(fontSize: 11, color: Colors.blue.shade800),
               ),
             ],
             const SizedBox(height: 6),

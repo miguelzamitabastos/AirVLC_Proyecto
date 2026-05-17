@@ -1,1 +1,5 @@
-flutter.sdk=/Users/miguel/development/flutter
+sdk.dir=/home/tenismiguel/android-sdk
+flutter.sdk=/home/tenismiguel/development/flutter
+flutter.buildMode=profile
+flutter.versionName=1.0.0
+flutter.versionCode=1

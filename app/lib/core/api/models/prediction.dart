@@ -59,6 +59,9 @@ class Prediction {
     return {
       ...meta,
       if (stationRow['fecha_iso'] != null) 'fecha_iso': stationRow['fecha_iso'],
+      if (meta['air_source'] != null) 'air_source': meta['air_source'],
+      if (meta['data_source_label'] != null) 'data_source_label': meta['data_source_label'],
+      if (meta['waqi_city_name'] != null) 'waqi_city_name': meta['waqi_city_name'],
       if (mapResponse['server_timestamp'] != null)
         'server_timestamp': mapResponse['server_timestamp'],
     };

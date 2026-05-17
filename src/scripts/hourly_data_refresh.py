@@ -4,7 +4,7 @@
 ===================================================================
 Orquesta el pipeline de refresco horario de datos:
 
-    1. Descarga contaminantes (WAQI en vivo o Geoportal) → Mongo
+    1. Descarga contaminantes (GVA RVVCCA + WAQI solo Puerto Valencia) → Mongo
     2. Descarga meteo actual de OpenWeather → Mongo
     3. Append incremental al CSV v2
     4. Notifica a la API Flask para que recargue el dataset
@@ -15,8 +15,8 @@ Modos de uso:
 
 Variables de entorno:
     MONGO_URI, OPENWEATHER_API_KEY,
-    WAQI_TOKEN (Sprint 6 — contaminantes en vivo via aqicn),
-    AIRVLC_AIR_SOURCE (default: waqi | geoportal — fallback histórico Geoportal),
+    WAQI_TOKEN (solo fallback Puerto Valencia, vía ingesta GVA),
+    AIRVLC_AIR_SOURCE (default: gva | geoportal — NO usar waqi para las 7 estaciones),
     AIRVLC_MAX_DATA_AGE_H (opcional, append truthful — default 6),
     AIRVLC_INTERNAL_RELOAD_TOKEN (default: airvlc-reload-secret),
     AIRVLC_API_URL (default: http://localhost:5001)
@@ -63,21 +63,29 @@ RELOAD_TOKEN = os.getenv("AIRVLC_INTERNAL_RELOAD_TOKEN", "airvlc-reload-secret")
 
 
 def step_1_fetch_air_quality():
-    """B.1: Descarga contaminantes → Mongo (WAQI live o Geoportal histórico)."""
-    source = os.getenv("AIRVLC_AIR_SOURCE", "waqi").lower().strip()
+    """B.1: Descarga contaminantes → Mongo (GVA + WAQI solo Puerto Valencia)."""
+    source = os.getenv("AIRVLC_AIR_SOURCE", "gva").lower().strip()
     log.info(f"📌 Paso 1: Descargando contaminantes (fuente={source})...")
     try:
-        if source == "waqi":
-            from src.ingestion.waqi_air_quality_client import fetch_waqi_air_quality
+        if source == "gva":
+            from src.ingestion.gva_rvvcca_csv_client import fetch_gva_rvvcca
 
-            result = fetch_waqi_air_quality(hours=6)
+            result = fetch_gva_rvvcca()
+        elif source == "waqi":
+            log.warning(
+                "AIRVLC_AIR_SOURCE=waqi está obsoleto: use 'gva' (6 estaciones GVA + "
+                "WAQI fallback solo Puerto Valencia). Ejecutando modo gva."
+            )
+            from src.ingestion.gva_rvvcca_csv_client import fetch_gva_rvvcca
+
+            result = fetch_gva_rvvcca()
         elif source == "geoportal":
             from src.ingestion.valencia_air_quality_client import fetch_valencia_air_quality
 
             result = fetch_valencia_air_quality(hours=6)
         else:
             raise ValueError(
-                f"AIRVLC_AIR_SOURCE debe ser 'waqi' o 'geoportal', recibido: {source!r}"
+                f"AIRVLC_AIR_SOURCE debe ser 'gva' o 'geoportal', recibido: {source!r}"
             )
         log.info(f"   Resultado aire: {result}")
         return result

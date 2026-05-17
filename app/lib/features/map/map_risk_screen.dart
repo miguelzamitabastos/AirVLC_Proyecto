@@ -359,9 +359,16 @@ class _MapRiskScreenState extends State<MapRiskScreen> {
     final color = _colorForLevel(level);
     final allPreds = (s['all_predictions'] as Map?)?.cast<String, dynamic>() ??
         <String, dynamic>{};
-    final meta = (s['meta'] as Map?) ?? {};
+    final meta = (s['meta'] as Map?)?.cast<String, dynamic>() ?? {};
     final dataTs = meta['data_timestamp']?.toString();
     final modelUsed = meta['model_used']?.toString() ?? 'LSTM_Attention_Multi';
+    final airSource = meta['air_source']?.toString() ?? meta['source']?.toString();
+    final isWaqi = airSource == 'waqi';
+    final isGvaProxy = airSource == 'gva_proxy';
+    final waqiCity = meta['waqi_city_name']?.toString();
+    final waqiProxy = meta['waqi_proxy_label']?.toString() ??
+        meta['data_source_label']?.toString();
+    final gvaProxyFrom = meta['gva_proxy_from']?.toString();
     final predictionBundle = Prediction.fromJson(
       allPreds,
       parentJson: Prediction.mapStationFreshnessParent(s, _mapRoot),
@@ -408,36 +415,79 @@ class _MapRiskScreenState extends State<MapRiskScreen> {
             ),
             if (_horizon == 0)
               FreshnessChip(prediction: predictionBundle),
+            if (_horizon == 0 && (isWaqi || isGvaProxy)) ...[
+              const SizedBox(height: 6),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFE3F2FD),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: AirVLCTheme.primaryBlue.withOpacity(0.35)),
+                ),
+                child: Row(
+                  children: [
+                    Icon(
+                      isGvaProxy ? Icons.link : Icons.cloud,
+                      size: 16,
+                      color: AirVLCTheme.primaryBlue,
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        isGvaProxy
+                            ? 'Fuente: GVA (proxy espacial). Puerto Valencia no tiene sensor propio en la red oficial.\n${waqiProxy ?? ''}${gvaProxyFrom != null ? ' ← $gvaProxyFrom' : ''}'
+                            : (waqiProxy != null && waqiProxy.isNotEmpty
+                                ? 'Fuente: WAQI (proxy). Puerto Valencia no está en red GVA.\n$waqiProxy'
+                                : (waqiCity != null && waqiCity.isNotEmpty
+                                    ? 'Fuente: WAQI (fallback). Sensor: $waqiCity'
+                                    : 'Fuente: WAQI (fallback). Estación no publicada en red GVA.')),
+                        style: const TextStyle(fontSize: 11, color: Color(0xFF1565C0)),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
             const SizedBox(height: 4),
             // Transparency badge
-            Container(
-              margin: const EdgeInsets.symmetric(vertical: 8),
-              padding: const EdgeInsets.all(8),
-              decoration: BoxDecoration(
-                color: const Color(0xFFFFF3E0),
-                borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: AirVLCTheme.valenciaOrange.withOpacity(0.3)),
-              ),
-              child: Row(
-                children: [
-                  const Icon(Icons.info_outline, size: 16, color: AirVLCTheme.valenciaOrange),
-                  const SizedBox(width: 6),
-                  Expanded(
-                    child: Text(
-                      _horizon == 0
-                          ? 'Dato actual — basado en la última ventana del modelo.'
-                          : 'Forecast +${_horizon}h — tendencia estimada, no valor exacto.',
-                      style: const TextStyle(fontSize: 11, color: Color(0xFF795548)),
+            if ((!isWaqi && !isGvaProxy) || _horizon > 0)
+              Container(
+                margin: const EdgeInsets.symmetric(vertical: 8),
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFFFF3E0),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: AirVLCTheme.valenciaOrange.withOpacity(0.3)),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(Icons.info_outline, size: 16, color: AirVLCTheme.valenciaOrange),
+                    const SizedBox(width: 6),
+                    Expanded(
+                      child: Text(
+                        _horizon == 0
+                            ? 'Dato actual — basado en la última ventana del modelo.'
+                            : 'Forecast +${_horizon}h — tendencia estimada, no valor exacto.',
+                        style: const TextStyle(fontSize: 11, color: Color(0xFF795548)),
+                      ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
-            ),
-            if (dataTs != null && dataTs.isNotEmpty)
+            if (dataTs != null && dataTs.isNotEmpty && !isWaqi && !isGvaProxy)
               Padding(
                 padding: const EdgeInsets.only(bottom: 6),
                 child: Text(
                   'Ventana base: $dataTs · Modelo: $modelUsed',
+                  style: const TextStyle(fontSize: 11, color: Colors.grey),
+                ),
+              ),
+            if (dataTs != null && dataTs.isNotEmpty && (isWaqi || isGvaProxy) && _horizon == 0)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 6),
+                child: Text(
+                  isGvaProxy ? 'Última medición (proxy GVA): $dataTs' : 'Última medición WAQI: $dataTs',
                   style: const TextStyle(fontSize: 11, color: Colors.grey),
                 ),
               ),

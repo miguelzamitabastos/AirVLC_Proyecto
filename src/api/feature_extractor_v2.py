@@ -450,14 +450,19 @@ class FeatureExtractorV2:
     def get_features_for_horizon(
         self, station_name: str, horizon_hours: int = 0
     ) -> Tuple[np.ndarray, str, dict]:
-        """Extrae features para un horizonte futuro ajustando las variables temporales.
+        """Extrae features para un horizonte futuro ajustando las variables temporales
+        y aplicando una extrapolación de tendencia en los contaminantes.
 
-        Para h=0 equivale a get_features(). Para h>0, toma la última ventana
-        disponible y modifica las codificaciones temporales (hora_sin/cos,
-        hora_del_dia, dia_de_la_semana, is_weekend, mes, mes_sin/cos) para
-        reflejar el instante ``now + horizon_hours``. De este modo el modelo
-        LSTM recibe la señal temporal correcta y produce predicciones
-        genuinamente distintas por horizonte.
+        Para h=0 equivale a get_features(). Para h>0:
+        1. Ajusta TODAS las codificaciones temporales de los 24 timesteps con
+           interpolación progresiva (los pasos más recientes reflejan el instante
+           futuro; los más lejanos conservan un peso del valor original).
+        2. Extrapola los valores de contaminantes usando la tendencia (gradiente)
+           reciente del dataset, escalada por el horizonte.
+        3. Aplica modulación diurna para capturar el patrón hora → contaminante.
+
+        Esto produce predicciones genuinamente distintas por horizonte, sin
+        necesitar un modelo autorregresivo.
         """
         # Obtenemos la ventana base más reciente (offset=0)
         features, real_station, meta = self.get_features(station_name, offset_hours=0)
@@ -465,7 +470,6 @@ class FeatureExtractorV2:
         if horizon_hours <= 0:
             return features, real_station, meta
 
-        import pandas as pd
         from datetime import datetime, timezone, timedelta
 
         # Construir el timestamp objetivo
@@ -487,10 +491,8 @@ class FeatureExtractorV2:
         mes_sin = np.sin(2 * np.pi * target_month / 12)
         mes_cos = np.cos(2 * np.pi * target_month / 12)
 
-        # Crear copia mutable y ajustar los últimos pasos de la ventana.
-        # Modificamos los últimos 6 pasos para suavizar la transición temporal.
         adjusted = features.copy()
-        n_steps_to_adjust = min(6, adjusted.shape[1])
+        n_steps = adjusted.shape[1]  # 24
 
         # Necesitamos escalar los valores temporales nuevos usando los rangos
         # del MinMaxScaler original.
@@ -511,15 +513,73 @@ class FeatureExtractorV2:
             "mes_cos": mes_cos,
         }
 
+        # 1) Ajustar features temporales en TODOS los timesteps con interpolación
+        #    progresiva: alpha=0 para el paso más antiguo → alpha=1 para el más reciente.
         for col_name, raw_value in temporal_updates.items():
             if col_name not in col_idx:
                 continue
             idx = col_idx[col_name]
-            # MinMax scale: (x - min) / (max - min)
-            scaled_val = (raw_value - data_min[idx]) / data_range[idx]
-            scaled_val = np.clip(scaled_val, 0.0, 1.0)
-            for step in range(adjusted.shape[1] - n_steps_to_adjust, adjusted.shape[1]):
-                adjusted[0, step, idx] = scaled_val
+            scaled_target = (raw_value - data_min[idx]) / data_range[idx]
+            scaled_target = float(np.clip(scaled_target, 0.0, 1.0))
+            for step in range(n_steps):
+                alpha = (step + 1) / n_steps  # 1/24 → 1.0
+                original = adjusted[0, step, idx]
+                adjusted[0, step, idx] = original * (1 - alpha) + scaled_target * alpha
+
+        # 2) Extrapolar contaminantes usando la tendencia del último tramo de la ventana.
+        #    El gradiente captura si la concentración estaba subiendo o bajando;
+        #    lo proyectamos proporcionalmente al horizonte.
+        contaminant_cols = ["pm25", "no2", "o3"]
+        for col in contaminant_cols:
+            if col not in col_idx:
+                continue
+            idx = col_idx[col]
+            # Gradiente basado en los últimos 12 pasos (12h) para suavizar ruido
+            last_half = adjusted[0, -12:, idx]
+            if len(last_half) >= 2:
+                gradient = float(np.mean(np.diff(last_half)))
+            else:
+                gradient = 0.0
+            # Escalar el desplazamiento según el horizonte (más lejos → más cambio)
+            # Usamos sqrt para amortiguar y evitar extrapolaciones extremas.
+            displacement = gradient * np.sqrt(float(horizon_hours))
+            # Aplicar desplazamiento progresivo: los últimos pasos reciben más
+            for step in range(n_steps):
+                alpha = (step + 1) / n_steps
+                adjusted[0, step, idx] = np.clip(
+                    adjusted[0, step, idx] + displacement * alpha,
+                    0.0,
+                    1.0,
+                )
+
+        # 3) Modulación diurna: ajustar lags y rollings de contaminantes según
+        #    la hora del target. El patrón típico:
+        #    - NOx pico en rush-hour (7-9, 17-20), bajo de madrugada
+        #    - O3 sube con radiación solar (12-17), baja de noche
+        #    - PM2.5 pico matutino (6-10), pico vespertino (18-22)
+        diurnal_modulation = {
+            "pm25": 1.0 + 0.15 * np.sin(2 * np.pi * (target_hour - 8) / 24),
+            "no2":  1.0 + 0.20 * np.sin(2 * np.pi * (target_hour - 9) / 24),
+            "o3":   1.0 + 0.18 * np.sin(2 * np.pi * (target_hour - 14) / 24),
+        }
+        lag_rolling_prefixes = []
+        for col in contaminant_cols:
+            for suffix in ["_lag1", "_lag3", "_lag6", "_lag24",
+                           "_rolling_6h", "_rolling_12h", "_rolling_24h"]:
+                cn = f"{col}{suffix}"
+                if cn in col_idx:
+                    lag_rolling_prefixes.append((cn, col))
+
+        for cn, base_col in lag_rolling_prefixes:
+            idx = col_idx[cn]
+            mod = diurnal_modulation.get(base_col, 1.0)
+            # Aplicar modulación solo a los últimos pasos
+            for step in range(n_steps // 2, n_steps):
+                adjusted[0, step, idx] = np.clip(
+                    adjusted[0, step, idx] * mod,
+                    0.0,
+                    1.0,
+                )
 
         # Actualizar meta para reflejar que es un forecast
         meta["horizon_hours"] = horizon_hours

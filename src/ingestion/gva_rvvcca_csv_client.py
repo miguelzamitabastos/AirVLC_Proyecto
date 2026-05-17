@@ -65,6 +65,12 @@ from dotenv import load_dotenv
 from pymongo import ASCENDING, DESCENDING, MongoClient, UpdateOne
 from pymongo.errors import CollectionInvalid
 
+from src.ingestion.waqi_station_map import (
+    GVA_SPATIAL_PROXY_FOR,
+    GVA_SPATIAL_PROXY_LABEL,
+    WAQI_FALLBACK_STATIONS,
+)
+
 ROOT_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 sys.path.insert(0, ROOT_DIR)
 load_dotenv(os.path.join(ROOT_DIR, ".env"))
@@ -111,6 +117,9 @@ CANONICAL_V2_STATIONS: set[str] = {
     "Puerto llit antic Túria",
     "Universidad Politécnica",
 }
+
+# Estaciones v2 sin fila GVA → WAQI fallback (solo Puerto Valencia).
+GVA_ABSENT_CANONICAL_STATIONS = WAQI_FALLBACK_STATIONS
 
 # Campos GVA → campos limpios en Mongo (subset). El resto se guarda en
 # `raw_fields` por trazabilidad.
@@ -509,6 +518,155 @@ def ensure_timeseries_collection(name: str = "aire_realtime_ts") -> dict:
 
 
 # ---------------------------------------------------------------------------
+# Fallback Puerto Valencia: proxy GVA cercano (preferido) y WAQI (opcional)
+# ---------------------------------------------------------------------------
+def supplement_missing_canonical_from_gva_proxy(
+    *,
+    present_canonical: set[str] | None = None,
+    dry_run: bool = False,
+) -> dict:
+    """Copia el último dato GVA de una estación vecina (p. ej. Moll Ponent → Puerto Valencia)."""
+    if present_canonical is None:
+        present_canonical = set()
+
+    missing = GVA_ABSENT_CANONICAL_STATIONS - present_canonical
+    targets = [t for t in missing if t in GVA_SPATIAL_PROXY_FOR]
+    if not targets:
+        return {"stations": [], "parsed": 0, "inserted": 0, "modified": 0, "skipped": True}
+
+    if not MONGO_URI:
+        return {"stations": targets, "parsed": 0, "error": "MONGO_URI missing"}
+
+    client = MongoClient(MONGO_URI)
+    coll = client["airvlc_db"]["aire_realtime"]
+    parsed: list[dict] = []
+
+    try:
+        for target in targets:
+            source = GVA_SPATIAL_PROXY_FOR[target]
+            src_doc = coll.find_one(
+                {"estacion": source, "is_canonical_v2": True},
+                sort=[("fecha_iso", -1)],
+            )
+            if not src_doc:
+                print(f"   ⚠️  Sin doc GVA reciente para proxy {source!r} → {target!r}")
+                continue
+
+            proxy = {k: v for k, v in src_doc.items() if k != "_id"}
+            proxy["estacion"] = target
+            proxy["is_canonical_v2"] = True
+            proxy["source"] = "gva_spatial_proxy"
+            proxy["gva_proxy_from"] = source
+            proxy["data_source_label"] = GVA_SPATIAL_PROXY_LABEL.get(
+                target, f"Proxy GVA desde {source}"
+            )
+            proxy["ingested_at"] = datetime.now(timezone.utc)
+            parsed.append(proxy)
+            print(
+                f"   🔗 GVA proxy {target!r} ← {source!r} "
+                f"({proxy.get('fecha_iso')})"
+            )
+    finally:
+        client.close()
+
+    if dry_run or not parsed:
+        return {
+            "stations": targets,
+            "parsed": len(parsed),
+            "inserted": 0,
+            "modified": 0,
+            "dry_run": dry_run,
+        }
+
+    stats = upsert_to_mongo(parsed)
+    return {"stations": targets, "parsed": len(parsed), **stats}
+
+
+def supplement_missing_canonical_from_waqi(
+    *,
+    present_canonical: set[str] | None = None,
+    hours: int = 6,
+    dry_run: bool = False,
+) -> dict:
+    """Ingesta WAQI solo para estaciones canónicas que el WFS GVA no publica.
+
+    Caso conocido: **Puerto Valencia** (sensor del puerto / Moll de la Duana) no
+    está en ``RVVCCA.ICA``; sin este fallback el modelo y la app quedan con la
+    última fila del CSV histórico (~días de antigüedad).
+    """
+    if present_canonical is None:
+        present_canonical = set()
+
+    missing = GVA_ABSENT_CANONICAL_STATIONS - present_canonical
+    if not missing:
+        return {"stations": [], "parsed": 0, "inserted": 0, "modified": 0, "skipped": True}
+
+    if not os.getenv("WAQI_TOKEN", "").strip():
+        print(
+            f"   ⚠️  WAQI_TOKEN no configurado; no se puede complementar {sorted(missing)}"
+        )
+        return {
+            "stations": sorted(missing),
+            "parsed": 0,
+            "inserted": 0,
+            "modified": 0,
+            "error": "WAQI_TOKEN missing",
+        }
+
+    try:
+        from src.ingestion.waqi_air_quality_client import fetch_waqi_for_stations
+    except ImportError as e:
+        return {"stations": sorted(missing), "error": str(e)}
+
+    if dry_run:
+        print(f"   🌐 WAQI fallback (dry-run): {sorted(missing)}")
+        return {
+            "stations": sorted(missing),
+            "parsed": 0,
+            "inserted": 0,
+            "modified": 0,
+            "dry_run": True,
+        }
+
+    return fetch_waqi_for_stations(sorted(missing), hours=hours)
+
+
+def supplement_missing_canonical(
+    *,
+    present_canonical: set[str] | None = None,
+    hours: int = 6,
+    dry_run: bool = False,
+) -> dict:
+    """Completa estaciones v2 ausentes en el CSV GVA: proxy espacial GVA y luego WAQI."""
+    if present_canonical is None:
+        present_canonical = set()
+
+    missing = GVA_ABSENT_CANONICAL_STATIONS - present_canonical
+    gva_stats = supplement_missing_canonical_from_gva_proxy(
+        present_canonical=present_canonical,
+        dry_run=dry_run,
+    )
+    covered = set(gva_stats.get("stations") or [])
+    if gva_stats.get("parsed", 0) > 0 and gva_stats.get("inserted", 0) + gva_stats.get("modified", 0) > 0:
+        covered = set(missing)
+
+    still_missing = missing - covered
+    waqi_stats: dict = {"skipped": True, "stations": []}
+    if still_missing and os.getenv("WAQI_TOKEN", "").strip():
+        waqi_stats = supplement_missing_canonical_from_waqi(
+            present_canonical=present_canonical | covered,
+            hours=hours,
+            dry_run=dry_run,
+        )
+
+    return {
+        "missing": sorted(missing),
+        "gva_proxy": gva_stats,
+        "waqi_supplement": waqi_stats,
+    }
+
+
+# ---------------------------------------------------------------------------
 # Pipeline principal
 # ---------------------------------------------------------------------------
 def fetch_gva_rvvcca(
@@ -588,6 +746,26 @@ def fetch_gva_rvvcca(
     stats = upsert_to_mongo(docs)
     print(f"   🟢 Mongo upsert → insertados={stats['inserted']}  actualizados={stats['modified']}")
 
+    present_canonical = {d["estacion"] for d in docs if d.get("is_canonical_v2")}
+    supplement_stats = supplement_missing_canonical(
+        present_canonical=present_canonical,
+        hours=6,
+        dry_run=dry_run,
+    )
+    gva_proxy = supplement_stats.get("gva_proxy") or {}
+    waqi_stats = supplement_stats.get("waqi_supplement") or {}
+    if gva_proxy.get("parsed"):
+        print(
+            f"   🔗 GVA proxy → insertados={gva_proxy.get('inserted', 0)} "
+            f"actualizados={gva_proxy.get('modified', 0)}"
+        )
+    if waqi_stats.get("parsed"):
+        print(
+            f"   🌐 WAQI complementario → insertados={waqi_stats.get('inserted', 0)} "
+            f"actualizados={waqi_stats.get('modified', 0)} "
+            f"({waqi_stats.get('stations')})"
+        )
+
     return {
         "raw": len(rows),
         "parsed": len(docs),
@@ -595,6 +773,7 @@ def fetch_gva_rvvcca(
         "by_province": dict(by_province),
         **outlier_stats,
         **stats,
+        "supplement": supplement_stats,
     }
 
 

@@ -190,6 +190,13 @@ def main() -> int:
         return 3
     risk_classifier = RiskClassifierV2()
 
+    # Sincronizar observaciones recientes de Mongo (p. ej. WAQI → Puerto Valencia).
+    try:
+        inject_out = feature_extractor.inject_latest_from_mongo()
+        print(f"🔄 Mongo → FeatureExtractorV2: {inject_out}")
+    except Exception as e:
+        print(f"⚠️ Mongo inject en predict_and_save: {e}")
+
     # 2) Iterate stations/horizons, infer and save
     results: dict = {"stations": {}, "errors": []}
 

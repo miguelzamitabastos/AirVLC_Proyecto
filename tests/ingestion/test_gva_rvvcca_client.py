@@ -20,11 +20,13 @@ ROOT_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 sys.path.insert(0, ROOT_DIR)
 
 from src.ingestion.gva_rvvcca_csv_client import (
+    GVA_ABSENT_CANONICAL_STATIONS,
     _extract_number,
     _is_outlier,
     parse_row,
     read_csv_text,
     resolve_canonical_station,
+    supplement_missing_canonical_from_waqi,
 )
 
 
@@ -141,3 +143,25 @@ class TestOutlierFilter:
 
     def test_short_history_skips(self):
         assert _is_outlier(500.0, [10.0, 12.0]) is False
+
+
+class TestWaqiSupplement:
+    def test_puerto_valencia_marked_gva_absent(self):
+        from src.ingestion.waqi_station_map import WAQI_FALLBACK_STATIONS
+
+        assert GVA_ABSENT_CANONICAL_STATIONS == WAQI_FALLBACK_STATIONS
+        assert "Puerto Valencia" in GVA_ABSENT_CANONICAL_STATIONS
+
+    def test_skips_when_already_present(self):
+        out = supplement_missing_canonical_from_waqi(
+            present_canonical={"Puerto Valencia", "Francia"},
+            dry_run=True,
+        )
+        assert out.get("skipped") is True
+        assert out.get("stations") == []
+
+    def test_requires_waqi_token_when_missing(self, monkeypatch):
+        monkeypatch.delenv("WAQI_TOKEN", raising=False)
+        out = supplement_missing_canonical_from_waqi(present_canonical=set(), dry_run=True)
+        assert out["stations"] == ["Puerto Valencia"]
+        assert out.get("error") == "WAQI_TOKEN missing"

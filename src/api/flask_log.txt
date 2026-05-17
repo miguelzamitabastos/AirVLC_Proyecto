@@ -1,0 +1,59 @@
+/home/tenismiguel/PropuestaProyecto/AirVLC_Proyecto/.venv/lib/python3.10/site-packages/sklearn/base.py:442: InconsistentVersionWarning: Trying to unpickle estimator MinMaxScaler from version 1.8.0 when using version 1.7.2. This might lead to breaking code or invalid results. Use at your own risk. For more info please refer to:
+https://scikit-learn.org/stable/model_persistence.html#security-maintainability-limitations
+  warnings.warn(
+WARNING: All log messages before absl::InitializeLog() is called are written to STDERR
+I0000 00:00:1778940554.371755   31826 port.cc:153] oneDNN custom operations are on. You may see slightly different numerical results due to floating-point round-off errors from different computation orders. To turn them off, set the environment variable `TF_ENABLE_ONEDNN_OPTS=0`.
+I0000 00:00:1778940554.372130   31826 cudart_stub.cc:31] Could not find cuda drivers on your machine, GPU will not be used.
+I0000 00:00:1778940554.423023   31826 cpu_feature_guard.cc:227] This TensorFlow binary is optimized to use available CPU instructions in performance-critical operations.
+To enable the following instructions: AVX2 AVX_VNNI FMA, in other operations, rebuild TensorFlow with the appropriate compiler flags.
+WARNING: All log messages before absl::InitializeLog() is called are written to STDERR
+I0000 00:00:1778940555.705571   31826 port.cc:153] oneDNN custom operations are on. You may see slightly different numerical results due to floating-point round-off errors from different computation orders. To turn them off, set the environment variable `TF_ENABLE_ONEDNN_OPTS=0`.
+I0000 00:00:1778940555.706439   31826 cudart_stub.cc:31] Could not find cuda drivers on your machine, GPU will not be used.
+E0000 00:00:1778940556.404213   31826 cuda_platform.cc:52] failed call to cuInit: INTERNAL: CUDA error: Failed call to cuInit: UNKNOWN ERROR (303)
+/home/tenismiguel/PropuestaProyecto/AirVLC_Proyecto/.venv/lib/python3.10/site-packages/keras/src/saving/saving_lib.py:794: UserWarning: Skipping variable loading for optimizer 'adam', because it has 30 variables whereas the saved optimizer has 34 variables. 
+  saveable.load_own_variables(weights_store.get(inner_path))
+/home/tenismiguel/PropuestaProyecto/AirVLC_Proyecto/.venv/lib/python3.10/site-packages/keras/src/saving/saving_lib.py:794: UserWarning: Skipping variable loading for optimizer 'rmsprop', because it has 14 variables whereas the saved optimizer has 2 variables. 
+  saveable.load_own_variables(weights_store.get(inner_path))
+/home/tenismiguel/PropuestaProyecto/AirVLC_Proyecto/.venv/lib/python3.10/site-packages/sklearn/base.py:442: InconsistentVersionWarning: Trying to unpickle estimator MinMaxScaler from version 1.8.0 when using version 1.7.2. This might lead to breaking code or invalid results. Use at your own risk. For more info please refer to:
+https://scikit-learn.org/stable/model_persistence.html#security-maintainability-limitations
+  warnings.warn(
+Cargando dataset base para extracción: /home/tenismiguel/PropuestaProyecto/AirVLC_Proyecto/data/processed/master_dataset_colab.csv
+Cargando Scaler: /home/tenismiguel/PropuestaProyecto/AirVLC_Proyecto/models/scaler_day7.pkl
+  💻 TensorFlow: sin GPU visible; inferencia en CPU.
+  📦 Encontrados 12 modelos .keras
+  ✅ Cargado: LSTM_Attention_Multi (best_model_v2.keras)
+  ✅ Cargado: LSTM_Attention (lstm_attention_fixed.keras)
+  ✅ Cargado: Best_Day7 (best_model_day7.keras)
+  ✅ Cargado: Best_Day6 (best_model_day6.keras)
+  ⏭️  Omitido: Ensemble (usa capas Lambda incompatibles con TF local)
+  🎯 Modelo activo: LSTM_Attention_Multi
+  🔥 Warmup inferencia en modelo activo (primera predict más rápida).
+✅ Modelos cargados desde: /home/tenismiguel/PropuestaProyecto/AirVLC_Proyecto/models
+✅ ES Indexer conectado (indexará predicciones en airvlc-predictions)
+✅ ES Indexer v2 conectado (indexará predicciones en airvlc-predictions-v2)
+Cargando dataset base para extracción v2: /home/tenismiguel/PropuestaProyecto/AirVLC_Proyecto/data/processed/master_dataset_colab_v2.csv
+Cargando Scaler v2: /home/tenismiguel/PropuestaProyecto/AirVLC_Proyecto/models/scaler_v2.pkl
+✅ Mongo inject: 'Francia' ← 2026-05-16T11:35:17+00:00 (CSV hasta 2026-05-12T05:00:00+00:00)
+✅ Mongo inject: 'Molí del Sol' ← 2026-05-16T11:35:17+00:00 (CSV hasta 2026-05-12T05:00:00+00:00)
+✅ Mongo inject: 'Pista de Silla' ← 2026-05-16T11:35:17+00:00 (CSV hasta 2026-05-12T05:00:00+00:00)
+✅ Mongo inject: 'Puerto Moll Trans. Ponent' ← 2026-05-16T11:35:17+00:00 (CSV hasta 2026-05-12T05:00:00+00:00)
+✅ Mongo inject: 'Puerto llit antic Túria' ← 2026-05-16T11:35:17+00:00 (CSV hasta 2026-05-12T05:00:00+00:00)
+✅ Mongo inject: 'Universidad Politécnica' ← 2026-05-16T11:35:17+00:00 (CSV hasta 2026-05-12T05:00:00+00:00)
+
+==================================================
+🌐 AirVLC API — Predicción PM2.5
+==================================================
+  📂 Modelos: /home/tenismiguel/PropuestaProyecto/AirVLC_Proyecto/models
+  🔗 URL: http://localhost:5001
+  📋 Endpoints:
+     GET|HEAD /api/health
+     POST /api/predict
+     POST /api/risk
+     GET  /api/model/info
+     … v2: /api/v2/* (ver src/scripts/smoke_api_curls.sh)
+==================================================
+
+ * Serving Flask app 'app'
+ * Debug mode: on
+Address already in use
+Port 5001 is in use by another program. Either identify and stop that program, or start the server with a different port.

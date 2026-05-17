@@ -2,12 +2,42 @@ services:
   airvlc-ml:
     image: nvcr.io/nvidia/pytorch:25.04-py3
     container_name: airvlc-local-gpu
-    ipc: host  # Soluciona el warning de memoria compartida (SHMEM)
+    
+    # Recursos: imprescindible para PyTorch + TimesFM
+    ipc: host
+    ulimits:
+      memlock: -1
+      stack: 67108864
+    
+    # DNS para evitar problemas de resolución con github.com / huggingface.co
+    dns:
+      - 8.8.8.8
+      - 1.1.1.1
+    
     ports:
       - "8888:8888"
+      - "6006:6006"  # TensorBoard si lo necesitas
+    
+    # Volúmenes
+    # - Proyecto montado en /workspace
+    # - Caches persistentes para no redescargar TimesFM ni pip packages al reiniciar
     volumes:
       - ../:/workspace
-    working_dir: /workspace/notebooks
+      - airvlc-hf-cache:/root/.cache/huggingface
+      - airvlc-pip-cache:/root/.cache/pip
+      - airvlc-torch-cache:/root/.cache/torch
+    
+    # working_dir: la raíz del proyecto, así Jupyter ve todas las carpetas
+    working_dir: /workspace
+    
+    # Variables de entorno
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=compute,utility
+      - PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+      - HF_HOME=/root/.cache/huggingface
+      - JUPYTER_TOKEN=airvlc_local_dev
+    
     deploy:
       resources:
         reservations:
@@ -15,6 +45,30 @@ services:
             - driver: nvidia
               count: all
               capabilities: [gpu]
+    
+    # Reinicio automático si el contenedor se cae
+    restart: unless-stopped
+    
+    # Comando: instala dependencias (cacheadas tras la primera vez) y arranca Jupyter
     command: >
-      bash -c "pip install jupyterlab pandas scikit-learn matplotlib seaborn huggingface_hub &&
-               jupyter lab --ip=0.0.0.0 --port=8888 --no-browser --allow-root --NotebookApp.token='airvlc_local_dev'"
+      bash -c "
+      pip install --quiet 'git+https://github.com/google-research/timesfm.git' &&
+      pip install --quiet jupyterlab ipywidgets scikit-learn matplotlib seaborn huggingface_hub &&
+      jupyter lab
+      --ip=0.0.0.0
+      --port=8888
+      --no-browser
+      --allow-root
+      --ServerApp.token=$$JUPYTER_TOKEN
+      --ServerApp.password=''
+      --ServerApp.notebook_dir=/workspace
+      --ServerApp.allow_origin='*'
+      "
+
+volumes:
+  airvlc-hf-cache:
+    name: airvlc-hf-cache
+  airvlc-pip-cache:
+    name: airvlc-pip-cache
+  airvlc-torch-cache:
+    name: airvlc-torch-cache

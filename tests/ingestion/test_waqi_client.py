@@ -34,7 +34,53 @@ def test_skips_when_o3_missing(mock_get, monkeypatch):
     with patch("src.ingestion.waqi_air_quality_client.MongoClient"):
         import src.ingestion.waqi_air_quality_client as mod
 
-        with patch.object(mod, "CANONICAL_STATIONS", ["Francia"]):
-            stats = mod.fetch_waqi_air_quality(hours=24)
+        stats = mod.fetch_waqi_air_quality(hours=24)
 
     assert stats["parsed"] == 0
+
+
+@patch("src.ingestion.waqi_air_quality_client.requests.get")
+def test_build_document_sets_is_canonical_v2(mock_get, monkeypatch):
+    monkeypatch.setenv("WAQI_TOKEN", "test-token")
+
+    body = {
+        "status": "ok",
+        "data": {
+            "time": {"iso": "2026-05-17T08:00:00Z"},
+            "iaqi": {"pm25": {"v": 30}, "no2": {"v": 40}, "o3": {"v": 35}},
+            "city": {"name": "Puerto Valencia"},
+        },
+    }
+    mock_get.return_value = _mock_response(body)
+
+    import src.ingestion.waqi_air_quality_client as mod
+
+    doc = mod.build_document("Puerto Valencia", body["data"], hours=24)
+    assert doc is not None
+    assert doc["is_canonical_v2"] is True
+    assert doc["estacion"] == "Puerto Valencia"
+    assert doc["source"] == "waqi"
+
+
+def test_parse_time_from_waqi_example_payload():
+    import src.ingestion.waqi_air_quality_client as mod
+
+    data = {
+        "time": {
+            "s": "2026-05-17 17:00:00",
+            "tz": "+08:00",
+            "iso": "2026-05-17T17:00:00+08:00",
+        },
+        "iaqi": {"pm25": {"v": 30}, "no2": {"v": 11}, "o3": {"v": 9}},
+        "city": {"name": "Beijing (北京)"},
+    }
+    dt = mod._parse_time_iso(data)
+    assert dt is not None
+    assert dt.year == 2026 and dt.month == 5 and dt.day == 17
+
+
+def test_fetch_waqi_for_stations_rejects_non_fallback():
+    import src.ingestion.waqi_air_quality_client as mod
+
+    out = mod.fetch_waqi_for_stations(["Francia", "Puerto Valencia"], hours=24)
+    assert out.get("stations") == ["Puerto Valencia"]
